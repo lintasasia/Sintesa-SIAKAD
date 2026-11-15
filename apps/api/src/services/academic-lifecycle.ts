@@ -6,12 +6,13 @@
  * - mark keluar (mutasi) / restore to siswa
  * - migrate XII → alumni / purge alumni by year
  */
-import { and, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
   academicHistories,
   academicYears,
   classes,
+  grades,
   roles,
   students,
   teachers,
@@ -235,6 +236,12 @@ export async function markStudentKeluar(studentId: string, note?: string) {
       .where(eq(users.id, s.userId));
   }
 
+  // Soft-delete data nilai agar tidak menghalangi rekap penilaian guru di kelas
+  await db
+    .update(grades)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(grades.studentId, studentId), isNull(grades.deletedAt)));
+
   return updated;
 }
 
@@ -278,6 +285,19 @@ export async function restoreStudentFromKeluar(
       .update(users)
       .set({ isActive: true, updatedAt: new Date() })
       .where(eq(users.id, s.userId));
+  }
+
+  // Pulihkan nilai jika siswa diaktifkan kembali
+  if (opts?.classId) {
+    await db
+      .update(grades)
+      .set({ classId: opts.classId, deletedAt: null, updatedAt: new Date() })
+      .where(eq(grades.studentId, studentId));
+  } else {
+    await db
+      .update(grades)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(and(eq(grades.studentId, studentId), isNotNull(grades.deletedAt)));
   }
 
   return updated;

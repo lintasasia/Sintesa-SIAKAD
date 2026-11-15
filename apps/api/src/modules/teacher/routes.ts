@@ -238,16 +238,24 @@ teacherRoutes.get("/classes", async (c) => {
       }
     }
 
-    // Cek apakah guru adalah wali kelas di homeroomAssignments
+    // Cek apakah guru adalah wali kelas di homeroomAssignments atau classes.homeroomTeacherId
     const homeroomClasses = await db
-      .select({
+      .selectDistinct({
         id: classes.id,
         name: classes.name,
       })
-      .from(homeroomAssignments)
-      .innerJoin(classes, eq(homeroomAssignments.classId, classes.id))
-      .where(and(eq(homeroomAssignments.userId, user.id), eq(classes.isActive, true)))
-      .groupBy(classes.id, classes.name)
+      .from(classes)
+      .leftJoin(homeroomAssignments, eq(homeroomAssignments.classId, classes.id))
+      .leftJoin(teachers, eq(classes.homeroomTeacherId, teachers.id))
+      .where(
+        and(
+          eq(classes.isActive, true),
+          or(
+            eq(homeroomAssignments.userId, user.id),
+            eq(teachers.userId, user.id),
+          ),
+        ),
+      )
       .orderBy(classes.name);
 
     if (homeroomClasses.length > 0) {
@@ -530,7 +538,13 @@ teacherRoutes.get("/grades", async (c) => {
       nisn: students.nisn,
     })
     .from(students)
-    .where(or(...initialConds))
+    .where(
+      and(
+        or(...initialConds),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .orderBy(students.name);
 
   // Fallback 1: Jika roster belum ada di database lokal, ambil dari SSO Kredensia dan sinkronkan
@@ -923,10 +937,27 @@ const submitSchema = z.object({
 
   const activeCodes = activeComps.map((ac) => ac.code.toLowerCase());
 
-  // 2. Ambil baris nilai draft khusus untuk mapel dan kelas ini
+  // 2. Ambil baris nilai draft khusus untuk mapel dan kelas ini (hanya siswa aktif di kelas ini)
   const rows = await db
-    .select()
+    .select({
+      id: grades.id,
+      studentId: grades.studentId,
+      uh1: grades.uh1,
+      t1: grades.t1,
+      sts: grades.sts,
+      uh2: grades.uh2,
+      t2: grades.t2,
+      studentName: students.name,
+    })
     .from(grades)
+    .innerJoin(
+      students,
+      and(
+        eq(grades.studentId, students.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .where(
       and(
         or(eq(grades.classId, targetClassId), eq(grades.classId, body.classId)),
@@ -961,8 +992,7 @@ const submitSchema = z.object({
 
       // Diisi parsial -> Tolak pengiriman
       if (filledCount < activeCodes.length) {
-        const [st] = await db.select().from(students).where(eq(students.id, g.studentId)).limit(1);
-        const studentName = st?.name ?? "Siswa";
+        const studentName = g.studentName ?? "Siswa";
         const activeNames = activeComps.map((ac) => ac.code.toUpperCase()).join(", ");
 
         return c.json(
@@ -986,6 +1016,14 @@ const submitSchema = z.object({
     const submittedRows = await db
       .select({ id: grades.id })
       .from(grades)
+      .innerJoin(
+        students,
+        and(
+          eq(grades.studentId, students.id),
+          eq(students.memberStatus, "siswa"),
+          eq(students.isActive, true),
+        ),
+      )
       .where(
         and(
           or(eq(grades.classId, targetClassId), eq(grades.classId, body.classId)),

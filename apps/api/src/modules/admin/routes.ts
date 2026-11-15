@@ -710,7 +710,8 @@ adminRoutes.get("/teachers", async (c) => {
       .innerJoin(userRoles, eq(userRoles.userId, users.id))
       .innerJoin(roles, eq(roles.id, userRoles.roleId))
       .leftJoin(teachers, eq(teachers.userId, users.id))
-      .where(roleCondition)
+      .leftJoin(students, eq(students.userId, users.id))
+      .where(and(roleCondition, isNull(students.id)))
       .orderBy(users.name);
 
     for (const u of localUsers) {
