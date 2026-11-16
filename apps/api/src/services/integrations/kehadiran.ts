@@ -197,7 +197,8 @@ export async function syncKehadiran() {
 export async function unlockStudentScoreInPasti(
   nisn: string,
   jenis: "kedisiplinan" | "presensi",
-  keterangan = "Koreksi ulang oleh walikelas"
+  keterangan = "Koreksi ulang oleh walikelas",
+  nis?: string
 ): Promise<boolean> {
   if (!isKehadiranConfigured() && !isGdsConfigured()) {
     return false;
@@ -224,6 +225,7 @@ export async function unlockStudentScoreInPasti(
       },
       body: JSON.stringify({
         nisn,
+        nis: nis || nisn,
         jenis,
         keterangan,
       }),

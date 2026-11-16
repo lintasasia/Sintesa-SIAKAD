@@ -27,9 +27,9 @@ async function resolveHomeroomClass(userId: string, roles: string[]) {
     const all = await db.select().from(classes).orderBy(classes.name);
     return sortClasses(all);
   }
-  // Ambil kelas yang ditugaskan ke Guru ini dari tabel homeroom_assignments
+  // Ambil kelas yang ditugaskan ke Guru ini dari tabel homeroom_assignments atau classes.homeroomTeacherId
   const assigned = await db
-    .select({
+    .selectDistinct({
       id: classes.id,
       name: classes.name,
       gradeLevel: classes.gradeLevel,
@@ -42,9 +42,18 @@ async function resolveHomeroomClass(userId: string, roles: string[]) {
       createdAt: classes.createdAt,
       updatedAt: classes.updatedAt,
     })
-    .from(homeroomAssignments)
-    .innerJoin(classes, eq(homeroomAssignments.classId, classes.id))
-    .where(and(eq(homeroomAssignments.userId, userId), eq(classes.isActive, true)))
+    .from(classes)
+    .leftJoin(homeroomAssignments, eq(homeroomAssignments.classId, classes.id))
+    .leftJoin(teachers, eq(classes.homeroomTeacherId, teachers.id))
+    .where(
+      and(
+        eq(classes.isActive, true),
+        or(
+          eq(homeroomAssignments.userId, userId),
+          eq(teachers.userId, userId),
+        ),
+      ),
+    )
     .orderBy(classes.name);
 
   return sortClasses(assigned);
@@ -70,7 +79,13 @@ homeroomRoutes.get("/matrix", async (c) => {
   const roster = await db
     .select()
     .from(students)
-    .where(eq(students.classId, klass.id))
+    .where(
+      and(
+        eq(students.classId, klass.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .orderBy(students.name);
 
   const gradeRows = await db
@@ -96,6 +111,14 @@ homeroomRoutes.get("/matrix", async (c) => {
     })
     .from(grades)
     .innerJoin(subjects, eq(grades.subjectId, subjects.id))
+    .innerJoin(
+      students,
+      and(
+        eq(grades.studentId, students.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .where(and(eq(grades.classId, klass.id), isNull(grades.deletedAt)));
 
   const byStudent = new Map<string, typeof gradeRows>();
@@ -297,6 +320,14 @@ homeroomRoutes.post("/approve", async (c) => {
   const allClassGrades = await db
     .select({ studentId: grades.studentId, subjectId: grades.subjectId })
     .from(grades)
+    .innerJoin(
+      students,
+      and(
+        eq(grades.studentId, students.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .where(and(eq(grades.classId, body.classId), isNull(grades.deletedAt)));
 
   const countByStudent = new Map<string, Set<string>>();
@@ -503,7 +534,8 @@ homeroomRoutes.post("/reject", async (c) => {
   const studentList = await db
     .select({
       id: students.id,
-      nisn: students.nisn,
+      nisn: sql<string>`COALESCE(NULLIF(${students.nisn}, ''), ${students.nis})`,
+      nis: students.nis,
     })
     .from(students)
     .where(
@@ -515,12 +547,13 @@ homeroomRoutes.post("/reject", async (c) => {
 
   // Kirim sinyal unlock ke PASTI di background agar walas tidak menunggu lama
   for (const s of studentList) {
-    if (s.nisn) {
-      unlockStudentScoreInPasti(s.nisn, "kedisiplinan", body.note).catch((err) => 
-        console.error(`Gagal unlock kedisiplinan siswa ${s.nisn}:`, err)
+    const idKey = s.nisn || s.nis;
+    if (idKey) {
+      unlockStudentScoreInPasti(idKey, "kedisiplinan", body.note, s.nis ?? undefined).catch((err) => 
+        console.error(`Gagal unlock kedisiplinan siswa ${idKey}:`, err)
       );
-      unlockStudentScoreInPasti(s.nisn, "presensi", body.note).catch((err) => 
-        console.error(`Gagal unlock presensi siswa ${s.nisn}:`, err)
+      unlockStudentScoreInPasti(idKey, "presensi", body.note, s.nis ?? undefined).catch((err) => 
+        console.error(`Gagal unlock presensi siswa ${idKey}:`, err)
       );
     }
   }
