@@ -34,7 +34,7 @@ import { requireAuth, type AuthVariables } from "../../middlewares/auth.js";
 import { requireRoles } from "../../middlewares/rbac.js";
 import * as lifecycle from "../../services/academic-lifecycle.js";
 import { gdsStatus, syncGds } from "../../services/integrations/gds.js";
-import { kehadiranStatus, syncKehadiran } from "../../services/integrations/kehadiran.js";
+import { kehadiranStatus, syncKehadiran, unlockAllScoresInPasti } from "../../services/integrations/kehadiran.js";
 import {
   getSsoRequestOrigin,
   ssoGetKelasMembers,
@@ -2663,6 +2663,36 @@ adminRoutes.post("/sync/:source", async (c) => {
     },
     400,
   );
+});
+
+adminRoutes.post("/integrations/pasti/cancel-all-submit", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const academicYear = body.academicYear || "2026/2027";
+  const jenis = body.jenis || "all";
+  const keterangan = body.keterangan || "Batal submit oleh Admin SIMAK";
+
+  const pastiResult = await unlockAllScoresInPasti(academicYear, jenis, keterangan);
+
+  // Reset status is_gds_submitted dan is_kehadiran_submitted di tabel students
+  const setObj: Record<string, any> = { updatedAt: new Date() };
+  if (jenis === "all" || jenis === "kedisiplinan") {
+    setObj.isGdsSubmitted = false;
+  }
+  if (jenis === "all" || jenis === "presensi") {
+    setObj.isKehadiranSubmitted = false;
+  }
+  await db.update(students).set(setObj);
+
+  broadcastRealtimeEvent({
+    type: "student_updated",
+    source: "pasti_cancel_submit",
+  });
+
+  return c.json({
+    success: pastiResult.success,
+    message: pastiResult.message,
+    data: pastiResult,
+  });
 });
 
 adminRoutes.get("/users", async (c) => {

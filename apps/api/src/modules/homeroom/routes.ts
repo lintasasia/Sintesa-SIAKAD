@@ -484,7 +484,8 @@ homeroomRoutes.post("/reject", async (c) => {
   const studentList = await db
     .select({
       id: students.id,
-      nisn: students.nisn,
+      nisn: sql<string>`COALESCE(NULLIF(${students.nisn}, ''), ${students.nis})`,
+      nis: students.nis,
     })
     .from(students)
     .where(
@@ -496,12 +497,13 @@ homeroomRoutes.post("/reject", async (c) => {
 
   // Kirim sinyal unlock ke PASTI di background agar walas tidak menunggu lama
   for (const s of studentList) {
-    if (s.nisn) {
-      unlockStudentScoreInPasti(s.nisn, "kedisiplinan", body.note).catch((err) => 
-        console.error(`Gagal unlock kedisiplinan siswa ${s.nisn}:`, err)
+    const idKey = s.nisn || s.nis;
+    if (idKey) {
+      unlockStudentScoreInPasti(idKey, "kedisiplinan", body.note, s.nis ?? undefined).catch((err) => 
+        console.error(`Gagal unlock kedisiplinan siswa ${idKey}:`, err)
       );
-      unlockStudentScoreInPasti(s.nisn, "presensi", body.note).catch((err) => 
-        console.error(`Gagal unlock presensi siswa ${s.nisn}:`, err)
+      unlockStudentScoreInPasti(idKey, "presensi", body.note, s.nis ?? undefined).catch((err) => 
+        console.error(`Gagal unlock presensi siswa ${idKey}:`, err)
       );
     }
   }
