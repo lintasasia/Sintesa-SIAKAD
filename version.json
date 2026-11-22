@@ -1,19 +1,21 @@
 {
-    "version":  "01.06.01",
-    "version_code":  10601,
+    "version":  "01.06.02",
+    "version_code":  10602,
     "db_version":  "01.00.00",
-    "title":  "SIAKAD v01.06.01 — Filter Guru di Monitoring Jurnal & Perapihan Pusat Unduhan",
-    "release_date":  "2026-10-08",
+    "title":  "SIAKAD v01.06.02 — Pemetaan Tugas Guru & JP, Sinkronisasi Jurnal KBM, dan Penyempurnaan Integrasi",
+    "release_date":  "2026-11-22",
     "force_update":  false,
     "changelog":  [
-                      "Fitur Baru: Tambah filter dropdown Pilih Guru di halaman Monitoring Jurnal Mengajar (mode pilihan per Kelas atau per Guru)",
-                      "Perbaikan UI & Ekspor: Kolom Jam Ke pada pratinjau dan ekspor Excel Pusat Unduhan kini hanya menampilkan urutan jam mengajar tanpa rentang waktu",
-                      "Fitur Baru: Menu Pusat Unduhan (/admin/downloads & /guru/downloads) untuk ekspor Excel (.xlsx) Rekap Monitoring Jurnal Guru serta Buku Leger & Rekap Nilai Mapel",
-                      "Fitur Baru: Unduh & Unggah Template Nilai Excel (.xlsx) untuk Guru lengkap dengan validasi pengampu & tanda tangan digital sheet"
+                      "Fitur Baru: Pemetaan Tugas Guru & Jam Pelajaran (JP) per Kelas/Rombel dengan target beban JP fleksibel, validasi strict cap, dan stepper inline",
+                      "Fitur Baru: Fitur Salin Susunan Kelas untuk duplikasi pemetaan mapel, guru, dan JP antar rombel paralel dalam 1 klik",
+                      "Penyempurnaan: Sinkronisasi dinamis form Jurnal Mengajar Guru dengan jadwal KBM dan mode asistensi admin (teacher selector)",
+                      "Penyempurnaan Integrasi: Sinkronisasi data agama siswa dari SSO Kredensia, resolusi wali kelas berbasis ID guru, dan fallback NIS untuk unlock nilai PASTI",
+                      "Perbaikan Akademik: Penanganan soft-deleted grades pada siklus mutasi siswa keluar dan restore, serta filter siswa aktif pada penilaian guru"
                   ],
     "min_supported_version":  "01.00.00",
     "schema_changes":  [
                            "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_gds text;",
-                           "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_kehadiran text;"
+                           "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_kehadiran text;",
+                           "ALTER TABLE teacher_subjects ADD COLUMN IF NOT EXISTS target_jp integer DEFAULT 24 NOT NULL;"
                        ]
 }
