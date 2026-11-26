@@ -22,6 +22,29 @@ export const studentRoutes = new Hono<{ Variables: AuthVariables }>();
 
 studentRoutes.use("*", requireAuth, requireRoles("siswa", "ortu", "admin", "superadmin"));
 
+studentRoutes.get("/assessment-components", async (c) => {
+  try {
+    let list = await db
+      .select()
+      .from(assessmentComponents)
+      .orderBy(asc(assessmentComponents.sortOrder), asc(assessmentComponents.createdAt));
+
+    if (list.length === 0) {
+      list = [
+        { code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
+        { code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
+        { code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
+        { code: "uh2", name: "UH2", type: "UJIAN", status: "active", sortOrder: 4 },
+        { code: "t2", name: "T2", type: "TUGAS", status: "active", sortOrder: 5 },
+      ] as any;
+    }
+
+    return c.json({ success: true, data: list });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 500);
+  }
+});
+
 async function resolveStudent(userId: string, roles: string[]) {
   if (roles.includes("admin") || roles.includes("superadmin")) {
     const [s] = await db.select().from(students).limit(1);
