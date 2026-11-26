@@ -71,8 +71,8 @@ const defaultComponents: AssessmentComponent[] = [
   { id: "1", code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
   { id: "2", code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
   { id: "3", code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
-  { id: "4", code: "uh2", name: "UH2", type: "UJIAN", status: "disabled", sortOrder: 4 },
-  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "disabled", sortOrder: 5 },
+  { id: "4", code: "uh2", name: "UH2", type: "UJIAN", status: "active", sortOrder: 4 },
+  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "active", sortOrder: 5 },
 ];
 
 export function WalikelasMatrixPage() {

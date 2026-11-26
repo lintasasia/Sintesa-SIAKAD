@@ -31,7 +31,13 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 export const teacherRoutes = new Hono<{ Variables: AuthVariables }>();
 
-teacherRoutes.use("*", requireAuth, requireRoles("guru", "walikelas", "admin", "superadmin"));
+teacherRoutes.use("*", requireAuth);
+teacherRoutes.use("*", async (c, next) => {
+  if (c.req.path === "/assessment-components" || c.req.path.endsWith("/assessment-components")) {
+    return next();
+  }
+  return requireRoles("guru", "walikelas", "admin", "superadmin")(c, next);
+});
 
 teacherRoutes.get("/debug-sso", async (c) => {
   const testUrl = `${env.SSO_API_BASE_URL}/kelas`;
@@ -956,6 +962,7 @@ const submitSchema = z.object({
         eq(grades.studentId, students.id),
         eq(students.memberStatus, "siswa"),
         eq(students.isActive, true),
+        or(eq(students.classId, targetClassId), eq(students.classId, body.classId)),
       ),
     )
     .where(
@@ -1022,6 +1029,7 @@ const submitSchema = z.object({
           eq(grades.studentId, students.id),
           eq(students.memberStatus, "siswa"),
           eq(students.isActive, true),
+          or(eq(students.classId, targetClassId), eq(students.classId, body.classId)),
         ),
       )
       .where(
