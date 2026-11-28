@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import Swal from "sweetalert2";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
@@ -10,6 +11,8 @@ import { usePagination } from "@/lib/pagination";
 import { useRealtimeEvent } from "@/hooks/useRealtimeEvent";
 import { useAuthStore } from "@/store/auth";
 import { downloadGradeTemplate, parseAndValidateGradeTemplate } from "@/lib/gradeTemplateExport";
+import { GuruJurnalPage } from "@/pages/guru/GuruJurnalPage";
+import { DownloadCenterPage } from "@/pages/admin/DownloadCenterPage";
 import { sortClasses, sortSubjects } from "@/lib/sort";
 
 type Klass = { id: string; name: string };
@@ -47,6 +50,13 @@ const defaultComponents: AssessmentComponent[] = [
 const scoreKeys = ["uh1", "t1", "sts", "uh2", "t2"] as const;
 
 export function GuruNilaiPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeSection = (searchParams.get("section") || "jurnal") as "jurnal" | "nilai" | "unduhan";
+
+  const setSection = (s: "jurnal" | "nilai" | "unduhan") => {
+    setSearchParams(s === "jurnal" ? {} : { section: s }, { replace: true });
+  };
+
   const [classes, setClasses] = useState<Klass[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [classId, setClassId] = useState("");
@@ -131,10 +141,10 @@ export function GuruNilaiPage() {
     loadGrades();
   }, [loadGrades]);
 
-  // Realtime: refresh tabel nilai saat walikelas approve/reject
+  // Realtime: refresh tabel nilai saat walikelas approve/reject atau AI menyimpan draft
   // Hanya aktif jika guru sedang melihat kelas & mapel tertentu
   useRealtimeEvent(
-    ["grade_approved", "grade_rejected", "grade_deleted"],
+    ["grade_approved", "grade_rejected", "grade_deleted", "grade_submitted"],
     () => { loadGrades(true); },
     Boolean(classId && subjectId)
   );
@@ -571,7 +581,44 @@ export function GuruNilaiPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* ─── Section Tab Navigation ─── */}
+      <div
+        className="flex flex-wrap gap-1 p-1 rounded-xl border w-fit"
+        style={{ background: "var(--hover)", borderColor: "var(--divider)" }}
+      >
+        {(
+          [
+            { key: "jurnal", label: "Jurnal Guru", icon: "auto_stories" },
+            { key: "nilai", label: "Input Nilai", icon: "grade" },
+            { key: "unduhan", label: "Pusat Unduhan", icon: "folder_open" },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setSection(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+              activeSection === tab.key
+                ? "bg-[var(--bg)] shadow-sm text-[var(--accent)]"
+                : "app-muted hover:text-[var(--fg)]"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── Pusat Unduhan Tab ─── */}
+      {activeSection === "unduhan" && <DownloadCenterPage />}
+
+      {/* ─── Jurnal Guru Tab ─── */}
+      {activeSection === "jurnal" && <GuruJurnalPage />}
+
+      {/* ─── Input Nilai Tab ─── */}
+      {activeSection === "nilai" && (
+        <div className="space-y-5">
       <div>
         <p className="text-sm text-on-surface-variant">Guru Mapel</p>
         <h1 className="font-display text-2xl md:text-3xl font-bold">Input Nilai Akademik</h1>
@@ -826,6 +873,8 @@ export function GuruNilaiPage() {
           {isApproved ? "Terkunci (Sudah Disetujui Walas)" : "Kirim ke Walikelas"}
         </Button>
       </div>
+        </div>
+      )}
     </div>
   );
 }

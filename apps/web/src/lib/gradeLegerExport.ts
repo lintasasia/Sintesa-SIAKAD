@@ -173,7 +173,7 @@ export function downloadGradeLegerExcel(params: ExportGradeLegerParams): {
   // Helper membangun 1 sheet Rekap Detail per Mata Pelajaran
   const buildSubjectSheet = (subj: ExportGradeSubject, sheetNameOverride?: string) => {
     const aoa: (string | number)[][] = [
-      ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+      ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
       ["DAFTAR REKAPITULASI NILAI AKADEMIK MATA PELAJARAN (PEMBERKASAN FISIK)"],
       [],
       ["Kelas / Rombel", `Kelas ${classInfo.name}`, "", "Tanggal Cetak", nowStr],
@@ -339,7 +339,7 @@ export function downloadGradeLegerExcel(params: ExportGradeLegerParams): {
   });
 
   const legerAoa: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["BUKU LEGER NILAI AKADEMIK KELAS (REKAPITULASI SELURUH MATA PELAJARAN)"],
     [],
     ["Kelas / Rombel", `Kelas ${classInfo.name}`, "", "Tanggal Cetak", nowStr],
@@ -431,7 +431,7 @@ export function downloadGradeLegerExcel(params: ExportGradeLegerParams): {
 
   // Sheet 2: Rekap Matrix Persetujuan Nilai per Mata Pelajaran
   const matrixAoa: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["MATRIKS PROGRES PENGUMPULAN & PERSETUJUAN NILAI MATA PELAJARAN"],
     [],
     ["Kelas / Rombel", `Kelas ${classInfo.name}`, "", "Wali Kelas", classInfo.homeroomTeacherName || "—"],
@@ -552,12 +552,12 @@ export function downloadStudentAttendanceGdsExcel(params: {
   });
 
   const aoa: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["REKAPITULASI PRESENSI KEHADIRAN, POIN KETERTIBAN (GDS) & DATA SISWA ROMBEL"],
     [],
     ["Kelas / Rombel", `Kelas ${classInfo.name}`, "", "Tanggal Cetak", nowStr],
     ["Wali Kelas", classInfo.homeroomTeacherName || "—", "", "Dicetak Oleh", printedBy],
-    ["Jumlah Siswa", `${roster.length} Siswa`, "", "Sumber Integrasi", "SIAKAD & Aplikasi PASTI"],
+    ["Jumlah Siswa", `${roster.length} Siswa`, "", "Sumber Integrasi", "SIMAK & Aplikasi PASTI"],
     [],
     [
       "No",
@@ -692,7 +692,7 @@ export function downloadTeacherAssignmentExcel(params: {
 
   // Sheet 1: Penugasan Guru Mata Pelajaran
   const aoaSubj: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["DAFTAR PEMBAGIAN TUGAS GURU MATA PELAJARAN AKTIF"],
     [],
     ["Tanggal Cetak", nowStr, "", "Dicetak Oleh", printedBy],
@@ -730,7 +730,7 @@ export function downloadTeacherAssignmentExcel(params: {
 
   // Sheet 2: Penugasan Wali Kelas
   const aoaHr: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["DAFTAR PENUGASAN WALI KELAS AKTIF"],
     [],
     ["Tanggal Cetak", nowStr, "", "Dicetak Oleh", printedBy],
@@ -766,7 +766,7 @@ export function downloadTeacherAssignmentExcel(params: {
 
   // Sheet 3: Struktur Jam Pelajaran
   const aoaHours: (string | number)[][] = [
-    ["SISTEM INFORMASI AKADEMIK (SIAKAD) — SMAN 3 MOJOKERTO"],
+    ["SISTEM INFORMASI AKADEMIK (SIMAK) — SMAN 3 MOJOKERTO"],
     ["STRUKTUR PEMBAGIAN JAM PELAJARAN HARIAN"],
     [],
     ["No", "Jam Pelajaran", "Waktu Mulai", "Waktu Selesai"],
@@ -780,7 +780,7 @@ export function downloadTeacherAssignmentExcel(params: {
   wsHours["!cols"] = [{ wch: 5 }, { wch: 20 }, { wch: 16 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, wsHours, "3. Jam Pelajaran");
 
-  const fileName = `SK_Penugasan_Guru_dan_Wali_Kelas_SIAKAD.xlsx`;
+  const fileName = `SK_Penugasan_Guru_dan_Wali_Kelas_SIMAK.xlsx`;
   XLSX.writeFile(wb, fileName);
 
   return {

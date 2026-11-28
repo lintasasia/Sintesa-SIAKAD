@@ -157,7 +157,7 @@ export async function syncKehadiran() {
       ok: false,
       status: "coming_soon" as const,
       message:
-        "Integrasi Kehadiran Siswa masih coming soon. App terpisah dari GDS & Kredensia; SINTESA hanya akan menyimpan rekap sakit/izin/alpa.",
+        "Integrasi Kehadiran Siswa masih coming soon. App terpisah dari GDS & Kredensia; SIMAK hanya akan menyimpan rekap sakit/izin/alpa.",
       log,
     };
   }
@@ -243,7 +243,7 @@ export async function unlockStudentScoreInPasti(
 export async function unlockAllScoresInPasti(
   academicYear = "2026/2027",
   jenis: "all" | "kedisiplinan" | "presensi" = "all",
-  keterangan = "Batal submit oleh SIAKAD"
+  keterangan = "Batal submit oleh SIMAK"
 ): Promise<{ success: boolean; message: string; count_gds?: number; count_presensi?: number }> {
   const baseUrl = env.KEHADIRAN_BASE_URL || env.GDS_BASE_URL || "https://pasti.sman3mjk.sch.id";
   const cleanBase = baseUrl.replace(/\/$/, "").replace(/\/api(\/v1)?$/i, "");

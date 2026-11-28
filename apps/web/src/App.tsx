@@ -23,6 +23,7 @@ import { KeluarPage } from "@/pages/admin/KeluarPage";
 import { DownloadCenterPage } from "@/pages/admin/DownloadCenterPage";
 import { GuruNilaiPage } from "@/pages/guru/GuruNilaiPage";
 import { GuruJurnalPage } from "@/pages/guru/GuruJurnalPage";
+import { GuruAiChatPage } from "@/pages/guru/GuruAiChatPage";
 import { WalikelasMatrixPage } from "@/pages/walikelas/WalikelasMatrixPage";
 import { SiswaDashboard } from "@/pages/siswa/SiswaDashboard";
 import { SiswaRaportPage } from "@/pages/siswa/SiswaRaportPage";
@@ -78,7 +79,7 @@ export default function App() {
             <Route element={<ProtectedRoute roles={["admin", "superadmin"]} />}>
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/students" element={<StudentsPage />} />
-              <Route path="/admin/academic-years" element={<AcademicYearsPage />} />
+              <Route path="/admin/academic-years" element={<Navigate to="/admin/classes?section=tahun-pelajaran" replace />} />
               <Route path="/admin/classes" element={<ClassesPage />} />
               <Route path="/admin/subjects" element={<SubjectsPage />} />
               <Route path="/admin/monitoring-jurnal" element={<AdminMonitoringJurnalPage />} />
@@ -88,7 +89,7 @@ export default function App() {
             </Route>
 
             <Route element={<ProtectedRoute roles={["superadmin"]} />}>
-              <Route path="/admin/app-update" element={<AppUpdatePage />} />
+              <Route path="/admin/app-update" element={<Navigate to="/admin/integrations?section=update" replace />} />
               <Route path="/admin/integrations" element={<IntegrationsPage />} />
               <Route path="/admin/backup-restore" element={<BackupRestorePage />} />
               <Route path="/admin/trash" element={<TrashPage />} />
@@ -96,6 +97,7 @@ export default function App() {
 
 
             <Route element={<ProtectedRoute roles={["guru", "walikelas", "admin", "superadmin"]} />}>
+              <Route path="/guru/ai" element={<GuruAiChatPage />} />
               <Route path="/guru" element={<GuruNilaiPage />} />
               <Route path="/guru/jurnal" element={<GuruJurnalPage />} />
               <Route path="/guru/downloads" element={<DownloadCenterPage />} />

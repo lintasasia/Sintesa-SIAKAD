@@ -1,9 +1,9 @@
-# SINTESA — SIAKAD
+# SINTESA — SIMAK
 
-**Sistem Informasi Akademik Terpadu Sekolah (SMAN 3 Mojokerto)**  
-Versi Rilis Saat Ini: **`v01.06.02`** (`version_code: 10602`)
+**Sistem Informasi Manajemen & Akademik Terpadu Sekolah (SMAN 3 Mojokerto)**  
+Versi Rilis Saat Ini: **`v01.07.02`** (`version_code: 172`)
 
-Monorepo full-stack modern untuk pengelolaan akademik sekolah secara terpadu, real-time, dan terintegrasi penuh dengan ekosistem **Kredensia SSO**, **GDS (Gerakan Disiplin Sekolah)**, dan **PASTI (Sistem Kehadiran Siswa)**.
+Monorepo full-stack modern untuk pengelolaan akademik sekolah secara terpadu, real-time, dan terintegrasi penuh dengan **NEBULA AI (Asisten AI Guru)**, **Kredensia SSO**, **GDS (Gerakan Disiplin Sekolah)**, dan **PASTI (Sistem Kehadiran Siswa)**.
 
 ---
 
@@ -14,6 +14,8 @@ Monorepo full-stack modern untuk pengelolaan akademik sekolah secara terpadu, re
 | **Package Manager** | `pnpm` workspaces (Monorepo) |
 | **Frontend (`apps/web`)** | React 19, TypeScript, Vite 6, Tailwind CSS, Zustand, React Router v7, SheetJS (`xlsx`), SweetAlert2 |
 | **Backend (`apps/api`)** | Node.js, Hono, TypeScript, Zod, `jose` (JWT Cookie Session), `pdfkit` (Raport PDF), `adm-zip` (In-App Updater), Server-Sent Events (SSE Realtime) |
+| **AI Engine (NEBULA AI)** | 9Router Gateway LLM API (`https://llm.faishalnafi.com/v1`), Gemini 3.5 Flash-lite / 3.1 / 2.0 Flash, Multimodal Streaming |
+| **Cloud Storage Proxy** | AWS S3 / Cloudflare R2 / Google Cloud Storage (GCS) / MinIO Generic Object Storage |
 | **Database** | PostgreSQL + Drizzle ORM |
 | **Integrasi Eksternal** | Kredensia SSO IdP, Aplikasi GDS (Poin Ketertiban), Aplikasi PASTI (Presensi Kehadiran) |
 
@@ -21,16 +23,33 @@ Monorepo full-stack modern untuk pengelolaan akademik sekolah secara terpadu, re
 
 ## ✨ Fitur Utama
 
-### 1. Otentikasi & Keamanan Login
-- **Halaman Login Split-Screen Responsif (`/login`)**: Tampilan modern bergaya *glassmorphism* yang adaptif di perangkat Mobile, Tablet, dan Desktop.
-- **Single Sign-On (SSO) Kredensia**: Login satu klik dengan sinkronisasi otomatis profil pengguna, peran (*roles*), data agama, dan *roster* kelas secara *Just-In-Time (JIT)*.
-- **Portal Login Khusus Admin (`/office`)**: Halaman login manual email/password terpisah untuk administrator sistem.
-- **Profil Publik & Kartu Profil (`/profil`, `/u/:uuid`)**: Pengelolaan biodata lengkap dan tautan profil publik.
+### 1. NEBULA AI — Asisten AI Guru & Akademik (`/guru/ai`)
+- **Dual-Sidebar Roomchat Interaktif**: Pengelolaan sesi obrolan mandiri yang terisolasi ketat per akun guru.
+- **Multimodal & Drag-Drop Media**: Mendukung unggah gambar, dokumen, serta berkas spreadsheet/PDF yang otomatis di-streaming melalui Cloud Object Storage proxy.
+- **AI Tool Calling & Automasi Tugas**:
+  - **Ekspor Excel Otomatis**: Perintah pembuatan Rekap Jurnal dan Buku Leger Nilai langsung dari obrolan AI.
+  - **Kirim / Submit Draft**: Aksi cerdas pengiriman draft jurnal maupun draft nilai siswa (`SEND_GRADE_DRAFT`, `SEND_JOURNAL_DRAFT`) dengan pemahaman bahasa alami (NLP) termasuk rentang kelas (contoh: *"XII-1 sampai XII-5"*).
+  - **Penjadwalan Otomatis (AI Scheduler)**: Penjadwalan eksekusi tugas di masa mendatang yang tersimpan aman pada tabel database `ai_scheduled_jobs`.
+- **Integrasi Konteks Data Guru**: AI mengenali jadwal mengajar, daftar siswa, rekap presensi PASTI, dan catatan pelanggaran GDS secara real-time.
 
-### 2. Manajemen Akademik (Admin & Superadmin)
-- **Dashboard Analitik Real-Time (`/admin`)**: Statistik pengguna, kelas, mata pelajaran, serta pantauan aktivitas akademik secara langsung via *Server-Sent Events (SSE)*.
-- **Siswa & Pengguna (`/admin/students`)**: Manajemen data peserta didik, guru, dan tenaga kependidikan, lengkap dengan sinkronisasi massal dari Kredensia SSO serta sinkronisasi data agama.
-- **Tahun Pelajaran & Siklus Akademik (`/admin/academic-years`, `/admin/alumni`, `/admin/keluar`)**: Pengaturan tahun ajaran aktif, kenaikan kelas, kelulusan alumni, serta mutasi siswa keluar/masuk kembali dengan penanganan *soft-deleted grades* yang aman.
+### 2. Pusat Unduhan & Pemberkasan (`/admin/downloads` & `/guru/downloads`)
+Menu mandiri di sidebar untuk mencetak dan mengunduh laporan Excel (`.xlsx`) resmi berstandar administrasi sekolah:
+- **Modul #1 — Rekap Monitoring Jurnal Mengajar Guru (`.xlsx`)**:
+  - Filter rentang waktu instan: *Hari Ini*, *1 Pekan (Senin–Sabtu)*, *1 Bulan Penuh*, *Semua Tanggal*, atau *Rentang Tanggal Kustom*.
+  - Filter spesifik per Rombel dan per Guru Pengajar.
+  - Opsi menampilkan jam mengajar yang belum terisi jurnal serta format kop surat dan lembar pengesahan resmi.
+- **Modul #2 — Buku Leger Nilai Rombel & Rekap Nilai Mapel (`.xlsx`)**:
+  - **Buku Leger Kelas (Seluruh Mapel)**: Menghasilkan 3 lembar kerja (*Sheet*) sekaligus — *Leger Nilai Akhir & Rata-rata*, *Rincian Komponen Nilai (UH1, T1, STS, UH2, T2)*, dan *Matriks Status Pengumpulan Nilai*.
+  - **Rekap Nilai Spesifik per Mata Pelajaran**.
+  - Filter status nilai (*Approved*, *Submitted*, *Draft*) beserta tabel pratinjau data interaktif.
+- **Modul Rekap Presensi & GDS**: Cetak data kehadiran siswa bersumber dari aplikasi PASTI dan rekap poin ketertiban GDS.
+
+### 3. Monitoring Jurnal Mengajar (`/admin/monitoring-jurnal`)
+- **Mode Filter Ganda (Per Guru & Per Kelas)**: Menampilkan keterisian jurnal kegiatan belajar mengajar harian secara fleksibel berdasarkan rombel maupun guru pengampu.
+- **Tampilan Jam Lengkap Tanpa Timpa Data**: Menampilkan seluruh jam pelajaran yang terjadwal. Jika terdapat lebih dari satu jurnal pada jam yang sama (lintas kelas/mapel), seluruh baris tetap tersaji utuh tanpa saling menggantikan.
+- **Koreksi Ulang & Manajemen Jurnal**: Fitur pengembalian status jurnal dari *Terkirim* ke *Draft* agar dapat diperbaiki oleh guru, serta opsi edit materi/presensi dan soft-delete oleh administrator.
+
+### 4. Manajemen Akademik, Mapel & Pemetaan Tugas Guru (Admin & Superadmin)
 - **Data Rombel (`/admin/classes`)**: Pengelolaan kelas/rombel beserta penugasan Wali Kelas dan *natural alphanumeric sorting*.
 - **Mata Pelajaran & Penugasan (`/admin/subjects`)**:
   - Pengaturan master mata pelajaran dan pembagian tugas mengajar guru pengampu.
@@ -42,49 +61,38 @@ Monorepo full-stack modern untuk pengelolaan akademik sekolah secara terpadu, re
     - **Quick Stepper Inline `[-]` dan `[+]`**: Penyesuaian alokasi JP instan dengan pembaruan *optimistic UI*.
     - **Fitur Salin Kelas**: Duplikasi seluruh susunan mapel, guru, dan JP antar rombel paralel dalam 1 klik.
   - Pengaturan jam pelajaran harian (`Jam ke-X`) dan konfigurasi aktif/nonaktif komponen penilaian (`UH1`, `T1`, `STS`, `UH2`, `T2`).
-- **Monitoring Jurnal Mengajar (`/admin/monitoring-jurnal`)**: Pemantauan keterisian jurnal KBM harian secara real-time berdasarkan Kelas maupun Guru Pengajar, dilengkapi fitur **Kembalikan ke Draft (Koreksi Ulang)** dan edit jurnal oleh Superadmin.
+- **Siswa & Pengguna (`/admin/students`)**: Manajemen data peserta didik, guru, dan tendik, lengkap dengan sinkronisasi massal dari Kredensia SSO serta sinkronisasi data agama.
+- **Tahun Pelajaran & Siklus Akademik (`/admin/academic-years`, `/admin/alumni`, `/admin/keluar`)**: Pengaturan tahun ajaran aktif, kenaikan kelas, kelulusan alumni, serta mutasi siswa keluar/masuk kembali dengan penanganan *soft-deleted grades* yang aman.
 
-### 3. Pusat Unduhan & Pemberkasan (`/admin/downloads` & `/guru/downloads`)
-Menu mandiri di sidebar untuk mencetak dan mengunduh laporan Excel (`.xlsx`) resmi siap cetak:
-- **Modul #1 — Rekap Monitoring Jurnal Mengajar Guru / Pribadi (`.xlsx`)**:
-  - Pilihan rentang waktu cepat: *Hari Ini*, *1 Pekan (Senin–Sabtu)*, *1 Bulan Penuh*, *Semua Tanggal (Seluruh Riwayat)*, atau *Rentang Tanggal Kustom*.
-  - Filter spesifik per Rombel dan per Guru Pengajar.
-  - Opsi menyertakan slot jam pelajaran yang belum diisi jurnal serta blok tanda tangan kepala sekolah/wakasek kurikulum.
-- **Modul #2 — Buku Leger Nilai Rombel & Rekap Nilai Mapel (`.xlsx`)**:
-  - Mode **Buku Leger Kelas (Semua Mapel)** menghasilkan 3 lembar kerja (*Sheet*) sekaligus: *Leger Rata-rata Nilai*, *Rincian Seluruh Komponen (UH1, T1, STS, UH2, T2)*, dan *Matriks Status Pengumpulan Nilai*.
-  - Mode **Rekap Nilai Spesifik per Mata Pelajaran**.
-  - Filter berdasarkan status nilai (*Semua Status*, *Approved*, *Submitted*, *Draft*) beserta tabel pratinjau langsung.
-- **Modul Pemberkasan Lainnya (*Segera Hadir*)**:
-  - Rekap Matrix Persetujuan Nilai, Buku Induk Siswa/Alumni/Mutasi, SK Penugasan Guru & Wali Kelas, serta Rekap Kedisiplinan (GDS) & Presensi.
-
-### 4. Portal Guru & Wali Kelas
+### 5. Portal Penilaian Guru & Wali Kelas
 - **Input Nilai Akademik (`/guru`)**:
-  - Pengisian nilai per komponen penilaian aktif dengan penyimpanan **Simpan Draft** (`upsert`) dan pengiriman ke Wali Kelas (**Kirim Nilai**).
+  - Pengisian nilai per komponen penilaian aktif dengan fitur **Simpan Draft** (`upsert`) dan **Kirim Nilai** ke Wali Kelas.
   - Filter otomatis hanya menampilkan peserta didik aktif (siswa keluar/mutasi otomatis disaring).
   - Sinkronisasi integrasi PASTI dengan mekanisme fallback NIS untuk pembukaan kunci nilai.
-  - **Unduh & Unggah Template Nilai Excel (`.xlsx`)**:
-    - File template diunduh dengan *timestamp* unik dan tanda tangan digital (*sheet metadata*) yang terikat pada Guru Pengampu, Kelas, dan Mata Pelajaran.
-    - Validasi anti-*sharing* saat unggah untuk mencegah tertukarnya file antar guru/kelas.
-    - Animasi loading saat proses impor Excel disertai jendela konfirmasi jumlah siswa yang berhasil diimpor dan pengingat **Simpan Draft**.
+  - **Template Nilai Excel Anti-Sharing (`.xlsx`)**:
+    - File template unduhan dilengkapi tanda tangan digital (*metadata*) unik yang terikat pada Guru, Rombel, dan Mata Pelajaran.
+    - Validasi kepemilikan file saat unggah untuk mencegah kesalahan input antar guru.
 - **Jurnal Mengajar Harian (`/guru/jurnal`)**:
-  - Pencatatan materi pembelajaran dan ketidakhadiran siswa per jam mengajar.
+  - Pencatatan materi pembelajaran dan kehadiran siswa per jam mengajar.
   - **Sinkronisasi Otomatis Jadwal KBM**: Form tanggal, kelas, dan mapel otomatis terhubung dengan jadwal mengajar yang dipetakan oleh admin.
   - Pembatasan dropdown jam mengajar sesuai sesi jadwal aktif dengan label yang bersih.
-  - Penguncian otomatis hari non-KBM (akhir pekan/hari bebas mengajar) dengan opsi aksesibilitas dropdown yang aman.
+  - Penguncian otomatis hari non-KBM (akhir pekan/hari bebas mengajar).
   - **Mode Asistensi Admin**: Fitur pemilih guru (*teacher selector*) dalam mode Admin untuk membantu pengisian atau koreksi jurnal terkunci.
-- **Matrix Persetujuan Wali Kelas (`/walikelas`)**: Pemeriksaan kelengkapan nilai seluruh mata pelajaran di kelas perwalian, persetujuan (*Approve*), atau pembatalan persetujuan nilai.
+- **Matrix Persetujuan Wali Kelas (`/walikelas`)**: Pemeriksaan kelengkapan nilai seluruh mapel kelas perwalian, persetujuan (*Approve*), atau pembatalan persetujuan nilai.
 
-### 5. Portal Siswa & Orang Tua
-- **Beranda Siswa (`/siswa`)**: Informasi kelas aktif, rekapitulasi ketidakhadiran (*Sakit*, *Izin*, *Alpa* beserta catatan kehadiran dari aplikasi PASTI), dan total **Poin GDS** beserta catatan kedisiplinan.
-- **Raport Nilai & Unduh PDF (`/siswa/raport`)**: Tampilan nilai akademik per mata pelajaran dan tombol **Unduh Raport (PDF)** ukuran A4 (*Times New Roman*) dengan format nama file `{uuid-siswa}-{tahun-ajaran}.pdf`.
+### 6. Portal Siswa & Orang Tua
+- **Beranda Siswa (`/siswa`)**: Informasi kelas aktif, rekapitulasi kehadiran (*Sakit*, *Izin*, *Alpa* terintegrasi dengan PASTI), dan saldo **Poin GDS**.
+- **Raport Nilai & Unduh Raport PDF (`/siswa/raport`)**: Tampilan nilai akademik lengkap dan tombol **Unduh Raport (PDF)** format A4 standar resmi lengkap dengan validasi QR Code menuju profil publik siswa (`/u/:uuid`).
 
-### 6. Pengaturan Sistem, Integrasi & In-App Updater (Superadmin)
-- **Update & Backup (`/admin/app-update`, `/admin/backup-restore`)**:
-  - Pembaruan aplikasi satu klik dengan mengunggah paket `update_siakad_v{versi}.zip` langsung dari antarmuka web.
-  - Eksekusi migrasi skema database non-destruktif secara otomatis saat update.
-  - Deteksi versi otomatis di sisi klien (*auto-reload* saat ada pembaruan server).
-- **Integrasi Eksternal (`/admin/integrations`)**: Konfigurasi dan sinkronisasi langsung dengan **Kredensia SSO**, **GDS**, dan **PASTI (Kehadiran Siswa)**.
-- **Tempat Sampah (`/admin/trash`)**: Pemulihan (*Restore*) atau penghapusan permanen data yang telah dihapus (*soft-delete*).
+### 7. Pengaturan Sistem, Keamanan & In-App Updater (Superadmin)
+- **Pembaruan Aplikasi Satu Klik (`/admin/integrations?section=update`)**:
+  - Unggah dan instal paket berkas `update_simak_v{versi}.zip` langsung dari panel Superadmin.
+  - Migrasi skema database otomatis dan non-destruktif tanpa menghapus data yang ada.
+- **Otentikasi & SSO Kredensia**:
+  - Login SSO satu klik dengan sinkronisasi pengguna dan *roster* kelas (*JIT Provisioning*).
+  - Portal login manual khusus admin (`/office`).
+  - Penanganan status sidebar minimize yang rapi dengan tooltip navigasi dan tombol keluar.
+- **Pencadangan & Tempat Sampah (`/admin/integrations?section=backup`, `/admin/trash`)**: Ekspor/impor cadangan data JSON serta pemulihan data *soft-delete*.
 
 ---
 
@@ -92,14 +100,14 @@ Menu mandiri di sidebar untuk mencetak dan mengunduh laporan Excel (`.xlsx`) res
 
 | Kode Role | Akses Login | Deskripsi & Hak Akses |
 | --- | --- | --- |
-| `superadmin` | Ya | Akses penuh seluruh modul akademik, pengaturan sistem, integrasi, tempat sampah, dan *In-App Updater* |
-| `admin` | Ya | Manajemen akademik, siswa, rombel, mapel, pemetaan jadwal & beban JP, monitoring jurnal, dan Pusat Unduhan |
-| `walikelas` | Ya | Matrix persetujuan nilai kelas perwalian, input nilai, jurnal mengajar, dan Pusat Unduhan |
-| `guru` | Ya | Input nilai (termasuk ekspor/impor template Excel), jurnal mengajar KBM tersinkronisasi, dan Pusat Unduhan pribadi |
+| `superadmin` | Ya | Akses menyeluruh seluruh modul sistem, integrasi AI & Cloud Storage, tempat sampah, dan *In-App Updater* |
+| `admin` | Ya | Manajemen pengguna, rombel, mapel, pemetaan tugas guru & JP, monitoring jurnal, dan Pusat Unduhan |
+| `walikelas` | Ya | Matrix persetujuan nilai kelas binaan, input nilai, jurnal guru, dan Pusat Unduhan |
+| `guru` | Ya | Asisten NEBULA AI, input nilai (ekspor/impor Excel), jurnal mengajar, dan Pusat Unduhan pribadi |
 | `tendik` | Ya | Tenaga kependidikan |
-| `siswa` / `ortu` | Ya | Dashboard kehadiran & poin GDS, lihat raport, dan unduh PDF raport nilai |
-| `alumni` | Ya | Akses arsip alumni (`kelas_label = ALUMNI`) |
-| `keluar` | **Diblokir** | Siswa mutasi/keluar — riwayat data tetap tersimpan, akses login dinonaktifkan |
+| `siswa` / `ortu` | Ya | Pemantauan kehadiran, poin kedisiplinan GDS, dan unduh raport PDF |
+| `alumni` | Ya | Akses arsip kelulusan (`kelas_label = ALUMNI`) |
+| `keluar` | **Diblokir** | Siswa mutasi keluar — riwayat arsip tersimpan, hak login dinonaktifkan |
 
 ---
 
@@ -116,95 +124,45 @@ Menu mandiri di sidebar untuk mencetak dan mengunduh laporan Excel (`.xlsx`) res
 # 1. Clone repositori
 git clone https://github.com/faishalnafi/Sintesa-SIAKAD.git
 cd Sintesa-SIAKAD
+git checkout simak-ai
 
-# 2. Instal seluruh dependencies
+# 2. Instal seluruh dependencies monorepo
 pnpm install
 
-# 3. Salin dan konfigurasi file environment (.env jangan pernah di-commit)
+# 3. Konfigurasi Environment (.env)
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-# Sesuaikan DATABASE_URL, JWT_SECRET, dan kredensial SSO_* pada apps/api/.env
+# Isi variabel DATABASE_URL, JWT_SECRET, SSO_*, GEMINI_*, dan S3_* pada apps/api/.env
 
-# 4. Jalankan migrasi dan seed awal database
+# 4. Migrasi & Seed Database
 pnpm db:migrate
 pnpm db:seed
 
-# 5. Jalankan server pengembangan (API + Web secara paralel)
+# 5. Jalankan Aplikasi (API & Web Dev Server)
 pnpm dev
 ```
 
-- **Frontend Web**: `http://localhost:5173`
+- **Frontend Web**: `http://localhost:5174` (atau `http://localhost:5173`)
 - **Backend API**: `http://localhost:3001`
-
-### Script Bantuan Auto-Commit (`pnpm autocommit`)
-Tersedia utilitas auto-commit praktis untuk mencatat dan mendorong perubahan otomatis ke GitHub:
-```bash
-# Sekali jalan (on-demand): mendeteksi perubahan, commit rapi, dan push
-pnpm autocommit
-
-# Mode watcher: memantau perubahan file setiap 20 detik dan auto-push
-pnpm autocommit:watch
-```
 
 ---
 
-## 📦 Membangun Paket Update (`.ZIP`)
+## 📦 Membangun Paket Update Produksi (`.ZIP`)
 
-Untuk membangun berkas kompilasi produksi (`apps/web/dist` dan `apps/api/dist`) sekaligus membuat paket `.zip` yang siap diunggah melalui menu **Admin > Update & Backup**:
+Untuk membuat paket rilis pembaruan produksi yang siap diunggah melalui menu **Admin > Update & Integrasi**:
 
 ```powershell
-# 1. Build frontend & backend
+# 1. Kompilasi frontend & backend
 pnpm --filter @sintesa/web build
 pnpm --filter @sintesa/api build
 
-# 2. Buat paket ZIP (otomatis membaca versi dari version.json)
+# 2. Buat paket ZIP otomatis
 .\make-deploy-zip.ps1
 ```
 
-Script di atas akan menghasilkan berkas **`update_siakad_v{versi}.zip`** (contoh: `update_siakad_v01.06.02.zip`) dengan struktur path *forward-slash* (`/`) yang kompatibel baik di lingkungan Windows maupun container Linux/Docker.
+Script akan menghasilkan berkas **`update_simak_v{versi}.zip`** (contoh: `update_simak_v01.07.02.zip`) dengan hierarki file yang siap diekstrak oleh sistem pembaruan otomatis.
 
 ---
 
-## 🐳 Docker Deployment (Portainer / Dokploy / VPS)
-
-Panduan lengkap konfigurasi container tersedia di [`deploy-to-docker.md`](deploy-to-docker.md).
-
-```bash
-git clone https://github.com/faishalnafi/Sintesa-SIAKAD.git && cd Sintesa-SIAKAD
-./scripts/generate-stack-env.sh https://domain-siakad-anda
-# Lengkapi variabel SSO_* pada file .env, kemudian jalankan:
-docker compose pull && docker compose up -d
-```
-
----
-
-## 📋 Riwayat Rilis Terbaru
-
-- **`v01.06.02` (2026-11-22)**:
-  - **Pemetaan Tugas Guru & Jam Pelajaran (JP)**:
-    - Fitur alokasi tugas mengajar dan JP mingguan per kelas rombel dengan dukungan split-view desktop dan card view mobile.
-    - Fleksibilitas target beban JP mingguan per guru (ASN / Honorer / GTT) disertai batasan kuota ketat (*strict cap*).
-    - Indikator peringatan kekurangan beban JP (`Kurang X JP`) dan status pemenuhan jam mengajar.
-    - Tombol stepper JP inline interaktif dan fitur **Salin Kelas** antar rombel paralel.
-  - **Sinkronisasi Dinamis Jurnal Mengajar Guru**:
-    - Form jurnal mengajar guru terhubung langsung dengan jadwal sesi KBM yang dipetakan admin.
-    - Pembatasan pilihan jam mengajar sesuai sesi jadwal aktif serta penguncian cerdas hari non-KBM.
-    - Mode asistensi admin dengan pemilih guru (*teacher selector*) untuk koreksi jurnal terkunci.
-  - **Penyempurnaan Integrasi & Siklus Akademik**:
-    - Sinkronisasi data agama siswa dari Kredensia SSO ke tabel siswa dan antarmuka web.
-    - Resolusi wali kelas berbasis ID guru dan filter siswa aktif pada modul penilaian.
-    - Mekanisme fallback NIS pada integrasi pembukaan kunci nilai PASTI.
-    - Penanganan *soft-deleted grades* yang aman pada mutasi siswa keluar / pemulihan (*restore*).
-  - **Skrip Utilitas Auto-Commit**: Penambahan perintah `pnpm autocommit` dan `pnpm autocommit:watch`.
-- **`v01.06.01` (2026-10-08)**:
-  - Penambahan dropdown **Pilih Guru** di Monitoring Jurnal Mengajar dengan mode pemilihan bergantian (*mutual exclusive*) antara per Kelas atau per Guru.
-  - Perapian tampilan kolom **Jam Ke** pada pratinjau dan ekspor Excel Pusat Unduhan (hanya menampilkan nomor jam mengajar tanpa rentang waktu/duplikasi teks).
-- **`v01.06.00` (2026-10-02)**:
-  - Penambahan menu mandiri **Pusat Unduhan** (`/admin/downloads` & `/guru/downloads`) untuk ekspor Excel (`.xlsx`) Rekap Monitoring Jurnal Mengajar Guru serta Buku Leger & Rekap Nilai Mapel.
-  - Standarisasi penomoran versi 2 digit (`xx.yy.zz`) dan penyertaan nomor versi otomatis pada nama berkas `update_siakad_v{versi}.zip`.
-- **`v1.5.3` (2026-09-30)**:
-  - Fitur Unduh & Unggah Template Nilai Excel (`.xlsx`) untuk Guru dengan validasi pengampu & tanda tangan digital sheet.
-  - Animasi loading unggah Excel serta modal konfirmasi jumlah siswa berhasil diimpor dengan pengingat Simpan Draft.
-  - Perbaikan penyimpanan nilai kosong (`null`) pada tombol Simpan Draft dan perapian tampilan tombol Keluar saat sidebar diminimize.
-- **`v1.5.2` (2026-08-29)**:
-  - Fitur **Unduh Raport (PDF)** ukuran A4 pada halaman Raport Nilai siswa serta mekanisme *auto-reload* klien saat versi server diperbarui.
+## 📄 Lisensi
+Hak Cipta © 2026 SMAN 3 Mojokerto. Seluruh hak cipta dilindungi undang-undang.

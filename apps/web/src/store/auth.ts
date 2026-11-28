@@ -26,8 +26,7 @@ type AuthState = {
 
 export function homeForRoles(roles: string[]): string {
   if (roles.includes("superadmin") || roles.includes("admin")) return "/admin";
-  if (roles.includes("walikelas")) return "/walikelas";
-  if (roles.includes("guru")) return "/guru";
+  if (roles.includes("walikelas") || roles.includes("guru")) return "/guru/ai";
   if (roles.includes("siswa") || roles.includes("ortu")) return "/siswa";
   return "/";
 }
@@ -73,6 +72,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await api("/auth/logout", { method: "POST" });
     } finally {
+      try {
+        localStorage.removeItem("simak_ai_sessions");
+      } catch {
+        // ignore storage errors
+      }
       set({ user: null });
     }
   },

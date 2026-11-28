@@ -255,7 +255,7 @@ authRoutes.get("/sso/login", async (c) => {
  * Validate HS256 → consume one-time → JIT provision → local session cookie
  */
 authRoutes.get("/sso/callback", async (c) => {
-  let origin = "http://localhost:5173";
+  let origin = "http://localhost:5174";
   try {
     origin = getOriginFromRequest(c);
   } catch (_) {}
@@ -388,7 +388,7 @@ authRoutes.get("/sso/logout", async (c) => {
 authRoutes.get("/google/login", async (c) => {
   const origin = getOriginFromRequest(c);
 
-  // Proteksi BFCache: Jika pengguna sudah memiliki sesi login aktif di SIAKAD, langsung arahkan ke Dashboard
+  // Proteksi BFCache: Jika pengguna sudah memiliki sesi login aktif di SIMAK, langsung arahkan ke Dashboard
   const existingToken = getCookie(c, env.COOKIE_NAME);
   if (existingToken) {
     const validSession = await verifySession(existingToken);
@@ -413,7 +413,7 @@ authRoutes.get("/google/login", async (c) => {
   const isLocal = origin.includes("localhost") || origin.includes("127.0.0.1");
   const redirectUri = isLocal
     ? `${origin}/auth/google/callback`
-    : "https://siakad.sman3mjk.sch.id/auth/google/callback";
+    : "https://simak.sman3mjk.sch.id/auth/google/callback";
 
   setCookie(c, "sintesa_google_redirect_uri", redirectUri, {
     httpOnly: true,
@@ -467,14 +467,15 @@ authRoutes.get("/google/callback", async (c) => {
     const isLocalCb = origin.includes("localhost") || origin.includes("127.0.0.1");
     const primaryRedirectUri = storedRedirectUri || (isLocalCb
       ? `${origin}/auth/google/callback`
-      : "https://siakad.sman3mjk.sch.id/auth/google/callback");
+      : "https://simak.sman3mjk.sch.id/auth/google/callback");
 
     const candidateUris = [
       primaryRedirectUri,
       `${origin}/auth/google/callback`,
-      "http://localhost:3001/auth/google/callback",
-      "http://localhost:3001/api/auth/google/callback",
-      "http://localhost:5173/auth/google/callback",
+      "http://localhost:3002/auth/google/callback",
+      "http://localhost:3002/api/auth/google/callback",
+      "http://localhost:5174/auth/google/callback",
+      "https://simak.sman3mjk.sch.id/auth/google/callback",
       "https://siakad.sman3mjk.sch.id/auth/google/callback",
     ].filter(Boolean);
     const uniqueUris = [...new Set(candidateUris)];

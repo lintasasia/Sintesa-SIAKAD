@@ -447,7 +447,7 @@ studentRoutes.get("/report/pdf", async (c) => {
 
   doc.font("Times-Bold").fontSize(16).text("RAPORT & STATUS KETUNTASAN NILAI", { align: "center" });
   doc.moveDown(0.3);
-  doc.font("Times-Roman").fontSize(12).text("SIAKAD - SMAN 3 Mojokerto", { align: "center" });
+  doc.font("Times-Roman").fontSize(12).text("SIMAK - SMAN 3 Mojokerto", { align: "center" });
   doc.moveDown(1.2);
 
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -800,7 +800,7 @@ studentRoutes.get("/report/pdf", async (c) => {
 
     doc.font("Times-Roman").fontSize(7.5).fillColor("#4b5563");
     doc.text(
-      `KKM Kelas: ${kkm} - Dicetak otomatis pada SIAKAD pada ${waktuCetak}${pageLabel}`,
+      `KKM Kelas: ${kkm} - Dicetak otomatis oleh SIMAK pada ${waktuCetak}${pageLabel}`,
       doc.page.margins.left,
       qrY + 6,
       { width: leftFooterWidth, ellipsis: true },

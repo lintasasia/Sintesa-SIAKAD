@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const _appFilename = fileURLToPath(import.meta.url);
+const _appDirname = path.dirname(_appFilename);
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -9,12 +12,12 @@ import { eq, or, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { env } from "./env.js";
 import { db } from "./db/index.js";
 import { academicYears, classes, students, users, subjects, grades, assessmentComponents, apiKeys } from "./db/schema/index.js";
+import { broadcastRealtimeEvent } from "./services/realtime.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
 import { teacherRoutes } from "./modules/teacher/routes.js";
 import { homeroomRoutes } from "./modules/homeroom/routes.js";
 import { studentRoutes } from "./modules/student/routes.js";
-import { broadcastRealtimeEvent } from "./services/realtime.js";
 import {
   appUpdateRoutes,
   getIsUpdatingState,
@@ -32,7 +35,6 @@ import {
       ALTER TABLE students ADD COLUMN IF NOT EXISTS is_kehadiran_submitted BOOLEAN DEFAULT FALSE NOT NULL;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS gds_submitted_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS kehadiran_submitted_at TIMESTAMP WITH TIME ZONE;
-
       UPDATE students
       SET is_gds_submitted = TRUE, is_kehadiran_submitted = TRUE
       WHERE id IN (
@@ -136,6 +138,88 @@ import {
         ('uh2', 'UH2', 'UJIAN', 'disabled', 4),
         ('t2', 'T2', 'TUGAS', 'disabled', 5)
       ON CONFLICT (code) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+        id VARCHAR(120) PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ai_chat_sessions_user_idx ON ai_chat_sessions (user_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS ai_chat_files (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id VARCHAR(120) NOT NULL,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_name VARCHAR(500) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        storage_key TEXT NOT NULL,
+        storage_provider VARCHAR(50) NOT NULL,
+        storage_url TEXT NOT NULL,
+        mime_type VARCHAR(150) NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ai_chat_files_session_idx ON ai_chat_files (session_id);
+
+      CREATE TABLE IF NOT EXISTS ai_scheduled_jobs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        action_type VARCHAR(50) NOT NULL,
+        payload JSONB DEFAULT '{}'::jsonb NOT NULL,
+        scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+        attempts INTEGER DEFAULT 0 NOT NULL,
+        max_attempts INTEGER DEFAULT 3 NOT NULL,
+        last_error TEXT,
+        result JSONB,
+        executed_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ai_scheduled_jobs_status_sched_idx ON ai_scheduled_jobs (status, scheduled_at, id);
+
+
+      UPDATE teacher_journals
+      SET date = TO_CHAR(NOW() AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD'),
+          updated_at = NOW()
+      WHERE status = 'draft'
+        AND deleted_at IS NULL
+        AND (date LIKE '2024-%' OR date LIKE '2025-%');
+
+      DELETE FROM teacher_journals
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY teacher_user_id, date, teaching_hour_id
+                   ORDER BY CASE WHEN status = 'sent' THEN 0 ELSE 1 END ASC,
+                            created_at DESC,
+                            id DESC
+                 ) AS rn
+          FROM teacher_journals
+          WHERE deleted_at IS NULL
+        ) t
+        WHERE t.rn > 1
+      );
+
+      DELETE FROM teacher_journals
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY date, class_id, teaching_hour_id
+                   ORDER BY CASE WHEN status = 'sent' THEN 0 ELSE 1 END ASC,
+                            created_at DESC,
+                            id DESC
+                 ) AS rn
+          FROM teacher_journals
+          WHERE deleted_at IS NULL AND class_id IS NOT NULL
+        ) t
+        WHERE t.rn > 1
+      );
     `);
 
     await initSystemVersionState();
@@ -210,7 +294,7 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-app.get("/health", (c) => c.json({ ok: true, service: "sintesa-api" }));
+app.get("/health", (c) => c.json({ ok: true, service: "simak-api" }));
 async function validateApiKeyMiddleware(c: any, next: any) {
   const authorization = c.req.header("Authorization") || "";
   let keyString = c.req.header("X-API-Key") || "";
@@ -688,8 +772,6 @@ app.post("/api/v1/webhooks/kehadiran", async (c) => {
   }
 });
 
-
-
 app.get("/api/public/profile/:uuid", async (c) => {
   const uuid = c.req.param("uuid");
   const academicYearParam = c.req.query("academicYear");
@@ -903,14 +985,60 @@ app.get("/api/public/profile/:uuid", async (c) => {
 });
 
 import { realtimeRoutes } from "./modules/realtime/routes.js";
+import { adminStorageRoutes, publicStorageRoutes } from "./modules/admin/storage.routes.js";
+import { getFileFromStorage } from "./services/storage/storage.service.js";
 
 app.route("/api/auth", authRoutes);
+app.route("/api/admin/storage", adminStorageRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/teacher", teacherRoutes);
 app.route("/api/homeroom", homeroomRoutes);
 app.route("/api/student", studentRoutes);
 app.route("/api/realtime", realtimeRoutes);
+app.route("/api/storage", publicStorageRoutes);
 app.route("/api", appUpdateRoutes);
+
+// Unified file serving for local uploads and Cloud Object Storage
+app.get("/api/uploads/*", async (c) => {
+  const relPath = decodeURIComponent(c.req.path.replace(/^\/api\/uploads\//, ""));
+  const safePath = relPath.replace(/\\/g, "/").replace(/^(\.\.\/)+/, "").replace(/^\/+/, "");
+
+  const fileObj = await getFileFromStorage(safePath);
+  if (!fileObj) {
+    return c.notFound();
+  }
+
+  const ext = path.extname(safePath).toLowerCase();
+
+  const mimeTypes: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+  };
+
+  c.header("Content-Type", fileObj.contentType || mimeTypes[ext] || "application/octet-stream");
+  c.header("Cache-Control", "public, max-age=86400");
+  const origName = c.req.query("filename") || path.basename(safePath);
+  if (ext === ".xlsx" || ext === ".xls" || ext === ".csv" || c.req.query("download") === "1") {
+    c.header("Content-Disposition", `attachment; filename="${encodeURIComponent(origName)}"`);
+  }
+  return c.body(new Uint8Array(fileObj.buffer));
+});
+
 
 
 // Intercept Google OAuth login without /api
@@ -946,9 +1074,7 @@ app.get("/auth/callback", async (c, next) => {
 });
 
 // Static file serving for React Frontend
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const webDistPath = path.resolve(__dirname, "../../web/dist");
+const webDistPath = path.resolve(_appDirname, "../../web/dist");
 
 if (fs.existsSync(webDistPath)) {
   // Prevent browser caching of index.html & HTML pages so updates are detected immediately

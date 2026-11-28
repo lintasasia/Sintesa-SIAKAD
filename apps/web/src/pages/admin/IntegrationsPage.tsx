@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -6,6 +7,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
+import { ObjectStorageSection } from "@/components/admin/ObjectStorageSection";
+import { AppUpdatePage } from "@/pages/admin/AppUpdatePage";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 export type SsoProviderItem = {
@@ -462,7 +465,7 @@ function SsoConfigModal({
                 ? "019f7d42-6977-7053-853f-4707fa9ea7cf"
                 : isLdap
                 ? "cn=admin,dc=sekolah,dc=sch,dc=id"
-                : "siakad-client-id"
+                : "simak-client-id"
             }
             hint={isLdap ? "Distinguished Name of the LDAP reader account." : "Unique application identifier registered at the IdP."}
             required
@@ -1269,7 +1272,7 @@ function DataSyncTable({
             </span>
           </div>
           <p className="text-xs app-muted mt-0.5">
-            Pull and synchronize academic master data, student discipline records, and daily attendance into SIAKAD.
+            Pull and synchronize academic master data, student discipline records, and daily attendance into SIMAK.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1566,6 +1569,13 @@ function SyncSourceConfigModal({
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export function IntegrationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeSection = (searchParams.get("section") || "integrations") as "integrations" | "update";
+
+  const setSection = (s: "integrations" | "update") => {
+    setSearchParams(s === "integrations" ? {} : { section: s }, { replace: true });
+  };
+
   const [enterpriseProviders, setEnterpriseProviders] = useState<SsoProviderItem[]>(INITIAL_ENTERPRISE_PROVIDERS);
   const [openSourceProviders, setOpenSourceProviders] = useState<SsoProviderItem[]>(INITIAL_OPENSOURCE_PROVIDERS);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -1840,11 +1850,44 @@ export function IntegrationsPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Ecosystem"
-        title="Integrations"
-        description="Single Sign-On (SSO) providers, third-party API keys, and data synchronization."
+        eyebrow="Pengaturan Sistem"
+        title="Update & Integrasi"
+        description="Kelola pembaruan aplikasi, backup data, Single Sign-On (SSO), API keys, dan sinkronisasi data."
       />
 
+      {/* ─── Section Tab Navigation ─── */}
+      <div
+        className="flex gap-1 p-1 rounded-xl border w-fit"
+        style={{ background: "var(--hover)", borderColor: "var(--divider)" }}
+      >
+        {(
+          [
+            { key: "integrations", label: "Integrasi", icon: "hub" },
+            { key: "update", label: "Update & Backup", icon: "system_update" },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setSection(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeSection === tab.key
+                ? "bg-[var(--bg)] shadow-sm text-[var(--accent)]"
+                : "app-muted hover:text-[var(--fg)]"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── Update & Backup Tab ─── */}
+      {activeSection === "update" && <AppUpdatePage />}
+
+      {/* ─── Integrasi Tab ─── */}
+      {activeSection === "integrations" && (
+        <>
       {message && (
         <div
           className="rounded-2xl px-4 py-3 text-sm flex items-center justify-between gap-3 shadow-xs"
@@ -2000,12 +2043,19 @@ export function IntegrationsPage() {
       </section>
 
       {/* ─────────────────────────────────────────────────────────────────────── */}
-      {/* ─── SECTION: KUNCI API REST UNTUK KLIEN ─────────────────────────────── */}
+      {/* ─── SECTION 3: CLOUD OBJECT STORAGE (S3, R2, GCS, GENERIC) ──────────── */}
+      {/* ─────────────────────────────────────────────────────────────────────── */}
+      <section className="space-y-4 pt-4 border-t" style={{ borderColor: "var(--divider)" }}>
+        <ObjectStorageSection />
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────────────── */}
+      {/* ─── SECTION 4: KUNCI API REST UNTUK KLIEN ───────────────────────────── */}
       {/* ─────────────────────────────────────────────────────────────────────── */}
       <section className="space-y-4 pt-4 border-t" style={{ borderColor: "var(--divider)" }}>
         <div className="flex flex-col gap-1">
           <h2 className="font-display font-bold text-base" style={{ color: "var(--fg)" }}>
-            SIAKAD REST API Keys
+            SIMAK REST API Keys
           </h2>
           <p className="text-xs app-muted">Manage API keys for data integration by third-party applications.</p>
         </div>
@@ -2309,6 +2359,8 @@ export function IntegrationsPage() {
           </div>
         </form>
       </Modal>
+        </>
+      )}
     </div>
   );
 }

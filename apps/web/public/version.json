@@ -1,19 +1,25 @@
 {
-    "version":  "01.06.01",
-    "version_code":  10601,
-    "db_version":  "01.00.00",
-    "title":  "SIAKAD v01.06.01 — Filter Guru di Monitoring Jurnal & Perapihan Pusat Unduhan",
-    "release_date":  "2026-10-08",
-    "force_update":  false,
-    "changelog":  [
-                      "Fitur Baru: Tambah filter dropdown Pilih Guru di halaman Monitoring Jurnal Mengajar (mode pilihan per Kelas atau per Guru)",
-                      "Perbaikan UI & Ekspor: Kolom Jam Ke pada pratinjau dan ekspor Excel Pusat Unduhan kini hanya menampilkan urutan jam mengajar tanpa rentang waktu",
-                      "Fitur Baru: Menu Pusat Unduhan (/admin/downloads & /guru/downloads) untuk ekspor Excel (.xlsx) Rekap Monitoring Jurnal Guru serta Buku Leger & Rekap Nilai Mapel",
-                      "Fitur Baru: Unduh & Unggah Template Nilai Excel (.xlsx) untuk Guru lengkap dengan validasi pengampu & tanda tangan digital sheet"
-                  ],
-    "min_supported_version":  "01.00.00",
-    "schema_changes":  [
-                           "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_gds text;",
-                           "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_kehadiran text;"
-                       ]
+  "version": "01.07.02",
+  "version_code": 172,
+  "db_version": "01.00.00",
+  "title": "SIMAK v01.07.02 — Pemetaan Tugas Guru & JP, Integrasi 9Router AI Gateway & Monitoring Jurnal",
+  "release_date": "2026-11-28",
+  "force_update": false,
+  "changelog": [
+    "Fitur Baru: Pemetaan Tugas Guru & Jam Pelajaran (JP) per Kelas/Rombel dengan target beban JP fleksibel, validasi strict cap, dan stepper inline",
+    "Fitur Baru: Fitur Salin Susunan Kelas untuk duplikasi pemetaan mapel, guru, dan JP antar rombel paralel dalam 1 klik",
+    "Penyempurnaan: Sinkronisasi dinamis form Jurnal Mengajar Guru dengan jadwal KBM dan mode asistensi admin (teacher selector)",
+    "Penyempurnaan Integrasi: Sinkronisasi data agama siswa dari SSO Kredensia, resolusi wali kelas berbasis ID guru, dan fallback NIS untuk unlock nilai PASTI",
+    "Peningkatan AI: Integrasi 9Router Gateway LLM API, penyempurnaan Asisten NEBULA AI Guru (/guru/ai), dan peningkatan Report Exporter",
+    "Pusat Unduhan & Pemberkasan: Rekap Monitoring Jurnal Mengajar & Buku Leger Nilai Akademik Kelas (.xlsx)",
+    "Perbaikan Akademik: Penanganan soft-deleted grades pada siklus mutasi siswa keluar dan restore, serta filter siswa aktif pada penilaian guru"
+  ],
+  "min_supported_version": "01.00.00",
+  "schema_changes": [
+    "CREATE TABLE IF NOT EXISTS ai_scheduled_jobs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES users(id) ON DELETE CASCADE, action_type VARCHAR(50) NOT NULL, payload JSONB DEFAULT '{}'::jsonb NOT NULL, scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL, status VARCHAR(20) DEFAULT 'pending' NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL, max_attempts INTEGER DEFAULT 3 NOT NULL, last_error TEXT, result JSONB, executed_at TIMESTAMP WITH TIME ZONE, created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL);",
+    "CREATE INDEX IF NOT EXISTS ai_scheduled_jobs_status_sched_idx ON ai_scheduled_jobs (status, scheduled_at, id);",
+    "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_gds text;",
+    "ALTER TABLE students ADD COLUMN IF NOT EXISTS catatan_kehadiran text;",
+    "ALTER TABLE teacher_subjects ADD COLUMN IF NOT EXISTS target_jp integer DEFAULT 24 NOT NULL;"
+  ]
 }

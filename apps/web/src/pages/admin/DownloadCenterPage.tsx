@@ -497,7 +497,7 @@ export function DownloadCenterPage() {
         hours,
         journals,
         includeEmptySlots: isAdmin && preset !== "all" ? includeEmptySlots : false,
-        printedBy: user?.name || "Guru SIAKAD",
+        printedBy: user?.name || "Guru SIMAK",
       });
 
       Swal.fire({
@@ -542,7 +542,7 @@ export function DownloadCenterPage() {
         grades: gradeData.grades,
         selectedSubjectId: gradeSubjectId || undefined,
         statusFilter: gradeStatusFilter,
-        printedBy: user?.name || "Guru SIAKAD",
+        printedBy: user?.name || "Guru SIMAK",
       });
 
       Swal.fire({

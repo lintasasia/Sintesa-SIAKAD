@@ -15,27 +15,24 @@ function hasRole(roles: string[], ...codes: string[]) {
   return codes.some((c) => set.has(c.toLowerCase()));
 }
 
+const ASISTEN_AI: NavItem = { to: "/guru/ai", label: "NEBULA AI", icon: "auto_awesome" };
 const DASHBOARD: NavItem = { to: "/admin", label: "Dashboard", icon: "dashboard" };
-const PROFIL: NavItem = { to: "/profil", label: "Profil Saya", icon: "person" };
 
 const NAV_MANAJEMEN_AKADEMIK: NavItem[] = [
   { to: "/admin/students", label: "Siswa & Pengguna", icon: "group" },
-  { to: "/admin/academic-years", label: "Tahun Pelajaran", icon: "calendar_month" },
-  { to: "/admin/classes", label: "Data Rombel", icon: "class" },
+  { to: "/admin/classes", label: "Rombel & Tahun Pelajaran", icon: "class" },
   { to: "/admin/subjects", label: "Mapel & Penugasan", icon: "menu_book" },
   { to: "/admin/monitoring-jurnal", label: "Monitoring Jurnal", icon: "analytics" },
   { to: "/admin/downloads", label: "Pusat Unduhan", icon: "folder_open" },
 ];
 
-const NAV_PEMBELAJARAN_KELAS: NavItem[] = [
+const NAV_PEMBELAJARAN_SUPERADMIN: NavItem[] = [
   { to: "/walikelas", label: "Matrix Persetujuan", icon: "fact_check" },
-  { to: "/guru", label: "Input Nilai", icon: "grade" },
-  { to: "/guru/jurnal", label: "Jurnal Guru", icon: "auto_stories" },
+  { to: "/guru", label: "Jurnal, Nilai & Unduhan", icon: "auto_stories" },
 ];
 
 const NAV_PENGATURAN_SUPERADMIN: NavItem[] = [
-  { to: "/admin/app-update", label: "Update & Backup", icon: "system_update" },
-  { to: "/admin/integrations", label: "Integrasi", icon: "hub" },
+  { to: "/admin/integrations", label: "Update & Integrasi", icon: "hub" },
   { to: "/admin/trash", label: "Tempat Sampah", icon: "delete_sweep" },
 ];
 
@@ -52,22 +49,24 @@ const NAV_GURU: NavItem[] = [
 
 /**
  * Grup menu sidebar per role.
- * Superadmin: seluruh menu manajemen + pengaturan sistem.
- * Admin: menu operasional tanpa pengaturan sistem.
+ * Asisten AI diletakkan di section terpisah paling atas.
+ * Profil Saya dipindahkan menyatu ke kartu profil pengguna di bagian bawah sidebar.
  */
 function navGroupsForRoles(roles: string[]): NavGroup[] {
   if (hasRole(roles, "superadmin")) {
     return [
-      { title: "Utama", items: [DASHBOARD, PROFIL] },
+      { title: "Asisten AI", items: [ASISTEN_AI] },
+      { title: "Utama", items: [DASHBOARD] },
       { title: "Manajemen Akademik", items: NAV_MANAJEMEN_AKADEMIK },
-      { title: "Pembelajaran & Kelas", items: NAV_PEMBELAJARAN_KELAS },
+      { title: "Pembelajaran & Kelas", items: NAV_PEMBELAJARAN_SUPERADMIN },
       { title: "Pengaturan Sistem (Superadmin)", items: NAV_PENGATURAN_SUPERADMIN },
     ];
   }
 
   if (hasRole(roles, "admin")) {
     return [
-      { title: "Utama", items: [DASHBOARD, PROFIL] },
+      { title: "Asisten AI", items: [ASISTEN_AI] },
+      { title: "Utama", items: [DASHBOARD] },
       { title: "Manajemen Akademik", items: NAV_MANAJEMEN_AKADEMIK },
       { title: "Pembelajaran & Kelas", items: NAV_GURU_ADMIN },
     ];
@@ -81,21 +80,21 @@ function navGroupsForRoles(roles: string[]): NavGroup[] {
       items.push({ to: "/guru/downloads", label: "Pusat Unduhan", icon: "folder_open" });
     }
     return [
-      { title: "Utama", items: [PROFIL] },
+      { title: "Asisten AI", items: [ASISTEN_AI] },
       { title: "Pembelajaran & Kelas", items },
     ];
   }
 
   if (hasRole(roles, "guru")) {
     return [
-      { title: "Utama", items: [PROFIL] },
+      { title: "Asisten AI", items: [ASISTEN_AI] },
       { title: "Pembelajaran & Kelas", items: NAV_GURU },
     ];
   }
 
   // siswa / ortu / default
   const groups: NavGroup[] = [
-    { title: "Utama", items: [{ to: "/siswa", label: "Beranda", icon: "home" }, PROFIL] },
+    { title: "Utama", items: [{ to: "/siswa", label: "Beranda", icon: "home" }] },
   ];
   if (hasRole(roles, "siswa", "ortu")) {
     groups.push({
@@ -110,12 +109,14 @@ function SidebarBody({
   groups,
   userName,
   userRoles,
+  avatarUrl,
   onLogout,
   onNavigate,
 }: {
   groups: NavGroup[];
   userName?: string;
   userRoles: string[];
+  avatarUrl?: string | null;
   onLogout: () => void;
   onNavigate?: () => void;
 }) {
@@ -129,7 +130,7 @@ function SidebarBody({
         </div>
         <div className="min-w-0">
           <div className="font-display font-bold text-[var(--primary)] text-[15px] leading-tight tracking-tight">
-            SIAKAD
+            SIMAK
           </div>
           <div className="text-[11px] app-muted mt-0.5">Sistem Informasi Akademik</div>
         </div>
@@ -172,7 +173,46 @@ function SidebarBody({
         ))}
       </nav>
 
-      <div className="p-3 border-t app-divider mt-auto">
+      <div className="p-3 border-t app-divider mt-auto space-y-2">
+        {userName && (
+          <NavLink
+            to="/profil"
+            onClick={onNavigate}
+            title="Buka Profil Saya"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all duration-200 group border cursor-pointer",
+                isActive
+                  ? "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent)]/30 shadow-xs"
+                  : "bg-slate-500/5 hover:bg-[var(--hover)] border-slate-500/10 text-[var(--fg)]"
+              )
+            }
+          >
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={userName}
+                referrerPolicy="no-referrer"
+                className="w-8 h-8 rounded-full object-cover shrink-0 border border-[var(--card-border)] group-hover:scale-105 transition-transform"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-xs">
+                {userName[0]?.toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold truncate group-hover:text-[var(--accent)] transition-colors">
+                {userName}
+              </div>
+              <div className="text-[10px] app-muted truncate capitalize">
+                {userRoles.length > 0 ? userRoles.join(", ") : "User"}
+              </div>
+            </div>
+            <span className="material-symbols-outlined text-[16px] app-muted group-hover:text-[var(--accent)] group-hover:translate-x-0.5 transition-all shrink-0">
+              chevron_right
+            </span>
+          </NavLink>
+        )}
         <button
           type="button"
           onClick={onLogout}
@@ -180,7 +220,7 @@ function SidebarBody({
           aria-label="Keluar"
           className="w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-[13px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors min-h-[44px]"
         >
-          <span className="material-symbols-outlined text-[20px]">logout</span>
+          <span className="material-symbols-outlined text-[18px]">logout</span>
           Keluar
         </button>
       </div>
@@ -259,14 +299,20 @@ export function AppShell() {
     window.location.href = "/login";
   };
 
+  const isAiRoute = location.pathname.startsWith("/guru/ai");
+
   return (
-    <div className="min-h-dvh" style={{ background: "var(--bg)", color: "var(--fg)" }}>
+    <div
+      className={cn(isAiRoute ? "h-dvh max-h-dvh overflow-hidden" : "min-h-dvh")}
+      style={{ background: "var(--bg)", color: "var(--fg)" }}
+    >
       {/* Desktop sidebar */}
       <aside className="app-sidebar hidden lg:flex fixed inset-y-0 left-0 w-[260px] flex-col border-r z-30">
         <SidebarBody
           groups={groups}
           userName={user?.name}
           userRoles={user?.roles ?? []}
+          avatarUrl={user?.avatarUrl}
           onLogout={onLogout}
         />
       </aside>
@@ -318,6 +364,7 @@ export function AppShell() {
             groups={groups}
             userName={user?.name}
             userRoles={user?.roles ?? []}
+            avatarUrl={user?.avatarUrl}
             onLogout={onLogout}
             onNavigate={() => setMobileOpen(false)}
           />
@@ -325,10 +372,15 @@ export function AppShell() {
       </div>
 
       {/* Main column */}
-      <div className="lg:pl-[260px] min-h-dvh flex flex-col">
+      <div
+        className={cn(
+          "lg:pl-[260px] flex flex-col",
+          isAiRoute ? "h-dvh max-h-dvh overflow-hidden" : "min-h-dvh"
+        )}
+      >
         {/* Top bar — mobile always; desktop subtle optional bar for breadcrumb space */}
         <header
-          className="sticky top-0 z-20 border-b px-4 lg:px-8 h-14 flex items-center justify-between gap-3"
+          className="sticky top-0 z-20 border-b px-4 lg:px-8 h-14 shrink-0 flex items-center justify-between gap-3"
           style={{
             background: "color-mix(in srgb, var(--bg) 92%, transparent)",
             borderColor: "var(--divider)",
@@ -350,12 +402,26 @@ export function AppShell() {
                 school
               </span>
               <span className="font-display font-bold text-[var(--primary)] text-sm truncate">
-                SIAKAD
+                SIMAK
               </span>
             </div>
-            <div className="hidden lg:block text-[13px] app-muted truncate">
-              {user?.name ? `Masuk sebagai ${user.name}` : ""}
-            </div>
+            <NavLink
+              to="/profil"
+              className="hidden lg:flex items-center gap-2.5 text-[13px] app-muted hover:text-[var(--fg)] transition-colors truncate group cursor-pointer"
+              title="Buka Profil Saya"
+            >
+              {user?.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user?.name ?? "User"}
+                  referrerPolicy="no-referrer"
+                  className="w-6 h-6 rounded-full object-cover border border-[var(--card-border)] shrink-0 group-hover:scale-105 transition-transform"
+                />
+              ) : null}
+              <span className="group-hover:text-[var(--accent)] transition-colors">
+                {user?.name ? `Masuk sebagai ${user.name}` : ""}
+              </span>
+            </NavLink>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -372,7 +438,14 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-container w-full mx-auto">
+        <main
+          className={cn(
+            "flex-1 w-full min-h-0",
+            isAiRoute
+              ? "h-[calc(100dvh-3.5rem)] overflow-hidden flex flex-col p-0 max-w-none"
+              : "p-4 md:p-6 lg:p-8 max-w-container mx-auto"
+          )}
+        >
           <Outlet />
         </main>
       </div>
