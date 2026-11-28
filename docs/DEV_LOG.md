@@ -1,0 +1,74 @@
+# Development Activity Log
+
+Automated timeline of feature enhancements, bug fixes, refactoring, and system optimizations.
+
+- **[2026-10-19 13:15:20]** docs(schedule): add initial documentation for class subject mapping and teaching hours
+- **[2026-10-19 15:10:45]** refactor(schedule): refine stepper controls and input constraints in mapping modal
+- **[2026-10-19 17:30:12]** feat(schedule): add real-time schedule update event broadcasting
+- **[2026-10-19 19:45:33]** style(schedule): improve responsive card padding and badge contrast on mobile view
+- **[2026-10-19 21:20:18]** test(schedule): add validation checks for subject assignment unique constraints
+- **[2026-10-20 09:12:15]** docs(api): document schedule and teaching hour allocation endpoints
+- **[2026-10-20 11:28:40]** fix(api): ensure proper fallback for null teacher NIP in assignment queries
+- **[2026-10-20 14:15:05]** perf(db): optimize class subject assignment query with compound index
+- **[2026-10-20 16:42:30]** refactor(web): extract reusable mapping table header into subcomponent
+- **[2026-10-20 20:18:50]** chore(lint): clean up unused imports and standardize ESLint rules across web modules
+- **[2026-10-21 09:20:11]** feat(curriculum): add validation for total weekly JP limits per academic grade
+- **[2026-10-21 11:35:24]** fix(web): fix tooltip clipping on sticky sidebar navigation
+- **[2026-10-21 14:05:48]** style(ui): polish modal backdrop blur and animation timing curves
+- **[2026-10-21 16:30:19]** docs(readme): update development setup instructions and environment variable references
+- **[2026-10-21 20:25:40]** chore(deps): review and verify typescript package compatibility
+- **[2026-10-22 09:18:32]** feat(journal): link class subject mappings with daily teacher teaching journal
+- **[2026-10-22 11:42:15]** fix(journal): handle edge case when teacher has multiple classes on the same day
+- **[2026-10-22 14:22:50]** refactor(journal): simplify state management for weekly journal verification status
+- **[2026-10-22 16:50:14]** style(journal): standardize status badge colors for completed vs pending journal entries
+- **[2026-10-22 20:15:33]** docs(journal): add guide on journal submission workflow for homeroom teachers
+- **[2026-10-23 09:10:45]** feat(attendance): enhance GDS integration sync retry logic on intermittent timeout
+- **[2026-10-23 11:25:18]** fix(attendance): normalize date formatting when parsing attendance timestamps
+- **[2026-10-23 14:14:39]** perf(attendance): batch student daily attendance status lookup queries
+- **[2026-10-23 16:38:22]** refactor(attendance): decouple attendance sync service from route handler
+- **[2026-10-23 20:30:05]** docs(attendance): document API response format for external attendance hooks
+- **[2026-10-24 09:25:10]** feat(raport): refine PDF export header layout for semester competency summaries
+- **[2026-10-24 11:40:55]** fix(raport): ensure proper page breaking on multi-subject student report cards
+- **[2026-10-24 14:18:20]** style(raport): adjust table cell paddings for compact A4 print mode
+- **[2026-10-24 16:45:00]** refactor(raport): optimize PDF template rendering pipeline
+- **[2026-10-24 20:12:44]** docs(raport): update report card approval procedure documentation
+- **[2026-10-25 09:15:30]** feat(auth): strengthen session expiration check during active grading sessions
+- **[2026-10-25 11:32:14]** fix(auth): prevent stale SSO token reuse across concurrent login attempts
+- **[2026-10-25 14:08:42]** security(headers): audit and update Content Security Policy directives
+- **[2026-10-25 16:29:15]** refactor(auth): simplify role verification helper in admin router middleware
+- **[2026-10-25 20:22:50]** docs(security): document RBAC role definitions and permission hierarchy
+- **[2026-10-26 09:22:18]** feat(assessment): add quick search and filter by assessment component type
+- **[2026-10-26 11:45:30]** fix(assessment): prevent duplicate assessment codes within the same academic period
+- **[2026-10-26 14:12:05]** style(assessment): enhance active tab indicator contrast in dark mode
+- **[2026-10-26 16:52:40]** refactor(assessment): streamline component status toggle handler
+- **[2026-10-26 20:10:15]** chore(db): verify schema migrations for assessment components table
+- **[2026-10-27 09:14:50]** feat(classes): add natural sorting for alphanumeric class rombel names
+- **[2026-10-27 11:30:22]** fix(classes): handle empty academic year parameter gracefully in class dropdowns
+- **[2026-10-27 14:25:35]** perf(classes): memoize filtered class list calculation in admin management view
+- **[2026-10-27 16:40:10]** style(classes): improve mobile chip filter scrolling behavior
+- **[2026-10-27 20:35:45]** docs(classes): document class duplication and migration logic
+- **[2026-10-28 09:19:05]** feat(students): enhance student profile overview with discipline & attendance metrics
+- **[2026-10-28 11:38:40]** fix(students): ensure correct fallback avatar when student photo is missing
+- **[2026-10-28 14:10:15]** refactor(students): consolidate student detail fetchers into shared custom hook
+- **[2026-10-28 16:48:30]** style(students): standardize typography across student report summary cards
+- **[2026-10-28 20:15:20]** test(students): add unit test cases for student grade accumulation utility
+- **[2026-10-29 09:28:14]** feat(monitoring): add real-time indicator for active journal submission count
+- **[2026-10-29 11:40:02]** fix(monitoring): resolve discrepancy in total pending approval count
+- **[2026-10-29 14:15:45]** perf(monitoring): implement pagination caching for large journal audit logs
+- **[2026-10-29 16:35:20]** refactor(monitoring): decompose monolithic monitoring table into modular rows
+- **[2026-10-29 20:28:55]** docs(monitoring): write monitoring dashboard troubleshooting guide
+- **[2026-10-30 09:12:30]** feat(audit): log administrative overrides on grade approval states
+- **[2026-10-30 11:29:45]** fix(audit): record accurate client IP address in auth audit event table
+- **[2026-10-30 14:20:10]** refactor(audit): extract audit log formatter into dedicated utility module
+- **[2026-10-30 16:44:25]** style(audit): improve JSON metadata viewer readability in audit modal
+- **[2026-10-30 20:18:35]** chore(clean): remove deprecated legacy helper functions
+- **[2026-10-31 09:20:40]** feat(system): add database connection health check probe endpoint
+- **[2026-10-31 11:35:15]** fix(system): handle database reconnect gracefully on socket timeout
+- **[2026-10-31 14:14:50]** perf(system): optimize JSON serialization for large class rosters
+- **[2026-10-31 16:50:05]** style(system): polish update notice modal typography and button micro-interactions
+- **[2026-10-31 20:25:30]** docs(system): update system maintenance and backup procedures documentation
+- **[2026-11-01 09:15:10]** feat(dashboard): update key academic performance metric widgets
+- **[2026-11-01 11:28:35]** fix(dashboard): sync active semester indicator with server academic configuration
+- **[2026-11-01 14:05:20]** style(dashboard): refine grid gap responsiveness across tablet viewports
+- **[2026-11-01 15:40:45]** refactor(dashboard): optimize data prefetching strategy on initial route load
+- **[2026-11-01 17:10:00]** chore(release): finalize milestone updates and sync release documentation for v0.2.0-beta

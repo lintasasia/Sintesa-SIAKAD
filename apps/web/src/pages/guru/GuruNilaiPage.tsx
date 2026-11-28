@@ -13,6 +13,7 @@ import { useAuthStore } from "@/store/auth";
 import { downloadGradeTemplate, parseAndValidateGradeTemplate } from "@/lib/gradeTemplateExport";
 import { GuruJurnalPage } from "@/pages/guru/GuruJurnalPage";
 import { DownloadCenterPage } from "@/pages/admin/DownloadCenterPage";
+import { sortClasses, sortSubjects } from "@/lib/sort";
 
 type Klass = { id: string; name: string };
 type Subject = { id: string; name: string };
@@ -42,7 +43,8 @@ const defaultComponents: AssessmentComponent[] = [
   { id: "1", code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
   { id: "2", code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
   { id: "3", code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
-  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "disabled", sortOrder: 5 },
+  { id: "4", code: "uh2", name: "UH2", type: "UJIAN", status: "active", sortOrder: 4 },
+  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "active", sortOrder: 5 },
 ];
 
 const scoreKeys = ["uh1", "t1", "sts", "uh2", "t2"] as const;
@@ -98,47 +100,29 @@ export function GuruNilaiPage() {
   }, [assessmentComponents]);
 
   useEffect(() => {
-    Promise.allSettled([
-      api<Klass[]>("/teacher/classes"),
-      api<Array<{ id: string; nama_kelas: string }>>("/admin/sso/kelas"),
-    ]).then(([tClsRes, ssoKlsRes]) => {
-      const combined: Klass[] = [];
-      const seenIds = new Set<string>();
-      const seenNames = new Set<string>();
-
-      if (tClsRes.status === "fulfilled" && tClsRes.value?.data && Array.isArray(tClsRes.value.data)) {
-        for (const c of tClsRes.value.data) {
-          if (c.id && c.name && !seenIds.has(c.id) && !seenNames.has(c.name.toLowerCase())) {
-            combined.push(c);
-            seenIds.add(c.id);
-            seenNames.add(c.name.toLowerCase());
-          }
-        }
+    api<Klass[]>("/teacher/classes").then((res) => {
+      const list = sortClasses(res.data ?? []);
+      setClasses(list);
+      if (list[0]) {
+        setClassId((prev) => (list.some((c) => c.id === prev) ? prev : list[0].id));
+      } else {
+        setClassId("");
       }
-
-      if (ssoKlsRes.status === "fulfilled" && ssoKlsRes.value?.data && Array.isArray(ssoKlsRes.value.data)) {
-        for (const k of ssoKlsRes.value.data) {
-          if (k.id && k.nama_kelas && !seenIds.has(k.id) && !seenNames.has(k.nama_kelas.toLowerCase())) {
-            combined.push({ id: k.id, name: k.nama_kelas });
-            seenIds.add(k.id);
-            seenNames.add(k.nama_kelas.toLowerCase());
-          }
-        }
-      }
-
-      setClasses(combined);
-      if (combined[0]) {
-        setClassId((prev) => prev || combined[0].id);
-      }
-    });
-
-    api<Subject[]>("/teacher/subjects").then((res) => {
-      const list = res.data ?? [];
-      setSubjects(list);
-      setSubjectId((prev) => prev || list[0]?.id || "");
-      setIsSubjectLocked(Boolean((res as any).isLocked));
     });
   }, []);
+
+  useEffect(() => {
+    const url = classId ? `/teacher/subjects?classId=${classId}` : "/teacher/subjects";
+    api<Subject[]>(url).then((res) => {
+      const list = sortSubjects(res.data ?? []);
+      setSubjects(list);
+      setSubjectId((prev) => {
+        if (list.some((s) => s.id === prev)) return prev;
+        return list[0]?.id || "";
+      });
+      setIsSubjectLocked(Boolean((res as any).isLocked));
+    });
+  }, [classId]);
 
   const loadGrades = useCallback(async (silent = false) => {
     if (!classId || !subjectId) return;
@@ -165,12 +149,20 @@ export function GuruNilaiPage() {
     Boolean(classId && subjectId)
   );
 
-  const locked = useMemo(
-    () => rows.some((r) => r.status === "submitted" || r.status === "approved"),
+  const isApproved = useMemo(
+    () => rows.length > 0 && rows.some((r) => r.status === "approved"),
     [rows],
   );
 
+  const isSubmitted = useMemo(
+    () => rows.length > 0 && rows.every((r) => r.status === "submitted" || r.status === "approved") && !isApproved,
+    [rows, isApproved],
+  );
+
+  const locked = isApproved || isSubmitted;
+
   const updateCell = (studentId: string, key: (typeof scoreKeys)[number], value: string) => {
+    if (isApproved || isSubmitted) return;
     let sanitizedValue = value;
     if (sanitizedValue !== "") {
       // Remove any decimal part
@@ -202,6 +194,15 @@ export function GuruNilaiPage() {
   };
 
   const saveDraft = async () => {
+    if (isApproved) {
+      Swal.fire({
+        icon: "warning",
+        title: "Nilai Terkunci (Approved)",
+        text: "Nilai mata pelajaran ini telah disetujui oleh Wali Kelas dan dikunci. Hubungi Wali Kelas jika ingin meminta koreksi ulang.",
+        confirmButtonColor: "#f59e0b",
+      });
+      return;
+    }
     if (!classId || !subjectId) {
       Swal.fire({
         icon: "warning",
@@ -278,6 +279,16 @@ export function GuruNilaiPage() {
   };
 
   const submit = async () => {
+    if (isApproved) {
+      Swal.fire({
+        icon: "warning",
+        title: "Nilai Terkunci (Approved)",
+        text: "Nilai mata pelajaran ini telah disetujui oleh Wali Kelas dan dikunci. Hubungi Wali Kelas jika ingin meminta koreksi ulang.",
+        confirmButtonColor: "#f59e0b",
+      });
+      return;
+    }
+
     const activeCols = assessmentComponents
       .filter((c) => c.status === "active")
       .map((c) => c.code.toLowerCase());
@@ -409,6 +420,28 @@ export function GuruNilaiPage() {
   const handleUploadTemplate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (isApproved) {
+      Swal.fire({
+        icon: "warning",
+        title: "Nilai Terkunci (Approved)",
+        text: "Nilai mata pelajaran ini telah disetujui oleh Wali Kelas dan dikunci. Tidak dapat mengunggah template nilai.",
+        confirmButtonColor: "#f59e0b",
+      });
+      if (e.target) e.target.value = "";
+      return;
+    }
+
+    if (isSubmitted) {
+      Swal.fire({
+        icon: "warning",
+        title: "Nilai Terkunci (Submitted)",
+        text: "Nilai mata pelajaran ini sudah dikirim ke Wali Kelas dan sedang menunggu persetujuan. Tidak dapat mengunggah template nilai.",
+        confirmButtonColor: "#f59e0b",
+      });
+      if (e.target) e.target.value = "";
+      return;
+    }
 
     if (!user) {
       Swal.fire({
@@ -634,6 +667,42 @@ export function GuruNilaiPage() {
         </label>
       </div>
 
+      {isApproved ? (
+        <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-950 dark:text-emerald-200 px-4 py-3.5 flex items-start gap-3 text-sm shadow-xs">
+          <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-[24px] shrink-0 mt-0.5">
+            verified
+          </span>
+          <div className="space-y-1">
+            <div className="font-bold text-emerald-800 dark:text-emerald-300 text-sm flex items-center gap-2">
+              <span>Nilai Telah Disetujui (Approved) oleh Wali Kelas</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-emerald-600 text-white rounded-full">
+                Terkunci
+              </span>
+            </div>
+            <p className="text-xs text-emerald-900/80 dark:text-emerald-200/80 leading-relaxed">
+              Nilai pada mata pelajaran ini sudah disahkan untuk raport oleh Wali Kelas dan berada dalam kondisi <strong>terkunci permanen</strong>. Guru Mapel tidak dapat mengubah nilai atau mengirim draft baru. Jika terdapat perbaikan nilai, silakan hubungi Wali Kelas untuk meminta <strong>Koreksi Ulang</strong>.
+            </p>
+          </div>
+        </div>
+      ) : isSubmitted ? (
+        <div className="rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-950 dark:text-blue-200 px-4 py-3.5 flex items-start gap-3 text-sm shadow-xs">
+          <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[24px] shrink-0 mt-0.5">
+            hourglass_top
+          </span>
+          <div className="space-y-1">
+            <div className="font-bold text-blue-800 dark:text-blue-300 text-sm flex items-center gap-2">
+              <span>Nilai Sudah Dikirim (Submitted) ke Wali Kelas</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-blue-600 text-white rounded-full">
+                Menunggu Walas
+              </span>
+            </div>
+            <p className="text-xs text-blue-900/80 dark:text-blue-200/80 leading-relaxed">
+              Nilai sedang ditinjau oleh Wali Kelas untuk verifikasi raport. Pengeditan dan pengiriman draft terkunci sementara sampai disetujui atau dikembalikan untuk koreksi ulang.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {message && (
         <div className="rounded-2xl bg-secondary-container/50 dark:bg-white/5 px-4 py-3 text-sm">
           {message}
@@ -659,7 +728,7 @@ export function GuruNilaiPage() {
               onClick={handleDownloadTemplate}
               disabled={loading || rows.length === 0}
               className="text-xs h-9 px-3 gap-1.5 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30 font-medium transition-all shadow-xs cursor-pointer"
-              title="Unduh format Excel resmi terkunci khusus untuk kelas dan mata pelajaran ini"
+              title="Unduh format Excel resmi khusus untuk kelas dan mata pelajaran ini"
             >
               <span className="material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400">download</span>
               Unduh Template
@@ -668,14 +737,22 @@ export function GuruNilaiPage() {
               variant="secondary"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
-              disabled={loading || importing || rows.length === 0}
-              className="text-xs h-9 px-3 gap-1.5 border-blue-600/30 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30 font-medium transition-all shadow-xs cursor-pointer"
-              title="Unggah template Excel nilai yang telah diisi untuk kelas dan mapel ini"
+              disabled={loading || importing || rows.length === 0 || isApproved || isSubmitted}
+              className="text-xs h-9 px-3 gap-1.5 border-blue-600/30 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30 font-medium transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={
+                isApproved
+                  ? "Nilai telah disetujui oleh Wali Kelas (Terkunci)"
+                  : isSubmitted
+                  ? "Nilai sudah dikirim ke Wali Kelas (Menunggu Approval)"
+                  : "Unggah template Excel nilai yang telah diisi untuk kelas dan mapel ini"
+              }
             >
               <span className="material-symbols-outlined text-[18px] text-blue-600 dark:text-blue-400">upload_file</span>
               {importing ? "Mengimpor..." : "Unggah Nilai"}
             </Button>
-            <Badge status={locked ? "submitted" : "draft"}>{locked ? "Terkunci/Submitted" : "Draft"}</Badge>
+            <Badge status={isApproved ? "approved" : isSubmitted ? "submitted" : "draft"}>
+              {isApproved ? "Disetujui Walas (Terkunci)" : isSubmitted ? "Terkunci/Submitted" : "Draft"}
+            </Badge>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -764,18 +841,36 @@ export function GuruNilaiPage() {
           variant="secondary"
           className="flex-1 font-semibold"
           onClick={saveDraft}
-          disabled={saving || loading || rows.length === 0}
+          disabled={saving || loading || rows.length === 0 || isApproved || isSubmitted}
+          title={
+            isApproved
+              ? "Nilai telah disetujui (Approved) oleh Wali Kelas dan dikunci"
+              : isSubmitted
+              ? "Nilai sudah dikirim ke Wali Kelas (Menunggu Approval)"
+              : "Simpan draft nilai ke server"
+          }
         >
-          <span className="material-symbols-outlined text-[18px]">save</span>
-          {saving ? "Menyimpan Draft..." : "Simpan Draft"}
+          <span className="material-symbols-outlined text-[18px]">
+            {isApproved ? "lock" : "save"}
+          </span>
+          {isApproved ? "Terkunci (Sudah Disetujui Walas)" : saving ? "Menyimpan Draft..." : "Simpan Draft"}
         </Button>
         <Button
           className="flex-1"
           onClick={submit}
-          disabled={saving || loading || rows.length === 0}
+          disabled={saving || loading || rows.length === 0 || isApproved || isSubmitted}
+          title={
+            isApproved
+              ? "Nilai telah disetujui (Approved) oleh Wali Kelas dan dikunci"
+              : isSubmitted
+              ? "Nilai sudah dikirim ke Wali Kelas (Menunggu Approval)"
+              : "Kirim nilai ke Wali Kelas"
+          }
         >
-          <span className="material-symbols-outlined text-[18px]">send</span>
-          Kirim ke Walikelas
+          <span className="material-symbols-outlined text-[18px]">
+            {isApproved ? "lock" : "send"}
+          </span>
+          {isApproved ? "Terkunci (Sudah Disetujui Walas)" : "Kirim ke Walikelas"}
         </Button>
       </div>
         </div>

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import { env } from "../../env.js";
@@ -21,6 +21,29 @@ import { getActiveAcademicYear } from "../../services/academic-lifecycle.js";
 export const studentRoutes = new Hono<{ Variables: AuthVariables }>();
 
 studentRoutes.use("*", requireAuth, requireRoles("siswa", "ortu", "admin", "superadmin"));
+
+studentRoutes.get("/assessment-components", async (c) => {
+  try {
+    let list = await db
+      .select()
+      .from(assessmentComponents)
+      .orderBy(asc(assessmentComponents.sortOrder), asc(assessmentComponents.createdAt));
+
+    if (list.length === 0) {
+      list = [
+        { code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
+        { code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
+        { code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
+        { code: "uh2", name: "UH2", type: "UJIAN", status: "active", sortOrder: 4 },
+        { code: "t2", name: "T2", type: "TUGAS", status: "active", sortOrder: 5 },
+      ] as any;
+    }
+
+    return c.json({ success: true, data: list });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 500);
+  }
+});
 
 async function resolveStudent(userId: string, roles: string[]) {
   if (roles.includes("admin") || roles.includes("superadmin")) {
@@ -48,6 +71,8 @@ function filterRelevantReligionGrades<T extends { subjectName: string; uh1?: any
   const validNonMuslim = nonMuslimRows.find(hasRealScore);
   const muslimHasScore = muslimRows.some(hasRealScore);
 
+  // Jika siswa terisi nilai agama selain muslim dan tervalidasi tidak terisi di agama islam -> non-muslim
+  // Selain itu (mayoritas / jika islam terisi) -> islam
   let chosenReligion: T | undefined;
   if (validNonMuslim && !muslimHasScore) {
     chosenReligion = validNonMuslim;
@@ -58,6 +83,93 @@ function filterRelevantReligionGrades<T extends { subjectName: string; uh1?: any
   }
 
   return gradesList.filter((g) => !/agama/i.test(g.subjectName) || g === chosenReligion);
+}
+
+function formatWibDateTime(date: Date | string | null | undefined): string {
+  if (!date) return "-";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "-";
+  const datePart = d.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  });
+  const timePart = d.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Asia/Jakarta",
+  }).replace(/\./g, ":");
+  return `${datePart} ${timePart} WIB`;
+}
+
+async function checkStudentApprovalStatus(
+  studentId: string,
+  student: { isGdsSubmitted: boolean; isKehadiranSubmitted: boolean },
+) {
+  let studentGrades = await db
+    .select({
+      id: grades.id,
+      status: grades.status,
+      subjectName: subjects.name,
+      approvedAt: grades.approvedAt,
+      uh1: grades.uh1,
+      t1: grades.t1,
+      sts: grades.sts,
+      uh2: grades.uh2,
+      t2: grades.t2,
+    })
+    .from(grades)
+    .innerJoin(subjects, eq(grades.subjectId, subjects.id))
+    .where(and(eq(grades.studentId, studentId), isNull(grades.deletedAt)));
+
+  studentGrades = filterRelevantReligionGrades(studentGrades);
+
+  const hasGrades = studentGrades.length > 0;
+  const draftCount = studentGrades.filter((g) => g.status === "draft").length;
+  const submittedCount = studentGrades.filter((g) => g.status === "submitted").length;
+  const allGradesApproved = hasGrades && studentGrades.every((g) => g.status === "approved");
+
+  // Jika nilai mata pelajaran sudah disetujui (Approved) oleh Wali Kelas di matriks persetujuan,
+  // maka raport siswa secara resmi telah sah/disetujui dan berhak diunduh sebagai PDF.
+  const isFullyApproved = allGradesApproved;
+  const isGdsApproved = Boolean(student.isGdsSubmitted || allGradesApproved);
+  const isKehadiranApproved = Boolean(student.isKehadiranSubmitted || allGradesApproved);
+
+  const pendingReasons: string[] = [];
+  if (!allGradesApproved) {
+    if (!hasGrades) {
+      pendingReasons.push("nilai mata pelajaran (belum ada nilai)");
+    } else if (draftCount > 0) {
+      pendingReasons.push(`nilai mata pelajaran (${draftCount} mapel masih draft)`);
+    } else if (submittedCount > 0) {
+      pendingReasons.push(`nilai mata pelajaran (${submittedCount} mapel menunggu persetujuan wali kelas)`);
+    } else {
+      pendingReasons.push("nilai mata pelajaran belum disetujui wali kelas");
+    }
+  }
+
+  const pendingMessage = !isFullyApproved
+    ? `Menunggu persetujuan lengkap dari Wali Kelas (${pendingReasons.join(", ")}).`
+    : null;
+
+  let latestApprovedAt: Date | null = null;
+  for (const g of studentGrades) {
+    if (g.approvedAt && (!latestApprovedAt || new Date(g.approvedAt) > latestApprovedAt)) {
+      latestApprovedAt = new Date(g.approvedAt);
+    }
+  }
+
+  return {
+    isFullyApproved,
+    allGradesApproved,
+    isGdsApproved,
+    isKehadiranApproved,
+    pendingMessage,
+    latestApprovedAt,
+    studentGrades,
+  };
 }
 
 studentRoutes.get("/dashboard", async (c) => {
@@ -129,8 +241,18 @@ studentRoutes.get("/report", async (c) => {
 
   let rows = await db
     .select({
+      id: grades.id,
+      subjectId: grades.subjectId,
       subjectName: subjects.name,
       subjectCode: subjects.code,
+      teacherName: sql<string | null>`COALESCE(
+        (SELECT t.name FROM class_subjects cs JOIN teachers t ON cs.teacher_id = t.id WHERE cs.class_id = ${student.classId} AND cs.subject_id = ${grades.subjectId} LIMIT 1),
+        (SELECT t.name FROM teachers t WHERE t.user_id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM users u WHERE u.id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM grade_audit_logs gal JOIN users u ON gal.actor_id = u.id WHERE gal.grade_id = ${grades.id} AND gal.action IN ('draft_create', 'draft_update', 'submit') ORDER BY gal.created_at DESC LIMIT 1),
+        (SELECT t.name FROM teacher_subjects ts JOIN teachers t ON ts.user_id = t.user_id WHERE ts.subject_id = ${grades.subjectId} AND t.name != 'Faishal Nafi''' LIMIT 1),
+        (SELECT u.name FROM teacher_subjects ts JOIN users u ON ts.user_id = u.id WHERE ts.subject_id = ${grades.subjectId} AND u.name != 'Faishal Nafi''' LIMIT 1)
+      )`,
       uh1: grades.uh1,
       t1: grades.t1,
       sts: grades.sts,
@@ -153,6 +275,8 @@ studentRoutes.get("/report", async (c) => {
 
   rows = filterRelevantReligionGrades(rows);
 
+  const approvalStatus = await checkStudentApprovalStatus(student.id, student);
+
   return c.json({
     success: true,
     data: {
@@ -169,6 +293,14 @@ studentRoutes.get("/report", async (c) => {
         catatanKehadiran: student.catatanKehadiran ?? null,
       },
       grades: rows,
+      canDownloadPdf: approvalStatus.isFullyApproved,
+      isApproved: approvalStatus.isFullyApproved,
+      pendingReason: approvalStatus.pendingMessage,
+      approvalDetails: {
+        allGradesApproved: approvalStatus.allGradesApproved,
+        isGdsApproved: approvalStatus.isGdsApproved,
+        isKehadiranApproved: approvalStatus.isKehadiranApproved,
+      },
     },
   });
 });
@@ -188,6 +320,17 @@ studentRoutes.get("/report/pdf", async (c) => {
   const student = await resolveStudent(user.id, user.roles);
   if (!student) {
     return c.json({ success: false, message: "Profil siswa tidak ditemukan" }, 404);
+  }
+
+  const approvalStatus = await checkStudentApprovalStatus(student.id, student);
+  if (!approvalStatus.isFullyApproved) {
+    return c.json(
+      {
+        success: false,
+        message: `Raport belum dapat diunduh. ${approvalStatus.pendingMessage}`,
+      },
+      403,
+    );
   }
 
   const [klass] = student.classId
@@ -228,7 +371,17 @@ studentRoutes.get("/report/pdf", async (c) => {
 
   let rows = await db
     .select({
+      id: grades.id,
+      subjectId: grades.subjectId,
       subjectName: subjects.name,
+      teacherName: sql<string | null>`COALESCE(
+        (SELECT t.name FROM class_subjects cs JOIN teachers t ON cs.teacher_id = t.id WHERE cs.class_id = ${student.classId} AND cs.subject_id = ${grades.subjectId} LIMIT 1),
+        (SELECT t.name FROM teachers t WHERE t.user_id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM users u WHERE u.id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM grade_audit_logs gal JOIN users u ON gal.actor_id = u.id WHERE gal.grade_id = ${grades.id} AND gal.action IN ('draft_create', 'draft_update', 'submit') ORDER BY gal.created_at DESC LIMIT 1),
+        (SELECT t.name FROM teacher_subjects ts JOIN teachers t ON ts.user_id = t.user_id WHERE ts.subject_id = ${grades.subjectId} AND t.name != 'Faishal Nafi''' LIMIT 1),
+        (SELECT u.name FROM teacher_subjects ts JOIN users u ON ts.user_id = u.id WHERE ts.subject_id = ${grades.subjectId} AND u.name != 'Faishal Nafi''' LIMIT 1)
+      )`,
       uh1: grades.uh1,
       t1: grades.t1,
       sts: grades.sts,
@@ -297,27 +450,32 @@ studentRoutes.get("/report/pdf", async (c) => {
   doc.font("Times-Roman").fontSize(12).text("SIMAK - SMAN 3 Mojokerto", { align: "center" });
   doc.moveDown(1.2);
 
-  doc.fontSize(12);
-  const infoStartY = doc.y;
-  const labelWidth = 110;
-  const info: Array<[string, string]> = [
-    ["Nama Lengkap", student.name ?? "-"],
-    ["NISN", student.nisn ?? "-"],
-    ["Kelas", klass?.name ?? "-"],
-    ["Tahun Ajaran", tahunAjaran],
-  ];
-  info.forEach(([label, value], i) => {
-    const yPos = infoStartY + i * 18;
-    doc.text(label, 50, yPos, { width: labelWidth, continued: false });
-    doc.text(`: ${value}`, 50 + labelWidth, yPos);
-  });
-  doc.y = infoStartY + info.length * 18 + 10;
-  doc.x = 50;
-
-  const tableTop = doc.y;
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const subjectColWidth = pageWidth * 0.42;
-  const scoreColWidth = (pageWidth - subjectColWidth) / (columns.length || 1);
+  doc.font("Times-Roman").fontSize(11);
+  const infoStartY = doc.y;
+  const colHalfWidth = (pageWidth - 20) / 2;
+  const labelColWidth = 85;
+
+  // Kolom 1 (Kiri): Nama Lengkap & NISN
+  const leftX = 50;
+  doc.text("Nama Lengkap", leftX, infoStartY, { width: labelColWidth });
+  doc.text(`: ${student.name ?? "-"}`, leftX + labelColWidth, infoStartY, { width: colHalfWidth - labelColWidth });
+  doc.text("NISN", leftX, infoStartY + 18, { width: labelColWidth });
+  doc.text(`: ${student.nisn || student.nis || "-"}`, leftX + labelColWidth, infoStartY + 18, { width: colHalfWidth - labelColWidth });
+
+  // Kolom 2 (Kanan, Berjajar): Kelas & Tahun Ajaran
+  const rightX = 50 + colHalfWidth + 20;
+  doc.text("Kelas", rightX, infoStartY, { width: labelColWidth });
+  doc.text(`: ${klass?.name ?? "-"}`, rightX + labelColWidth, infoStartY, { width: colHalfWidth - labelColWidth });
+  doc.text("Tahun Ajaran", rightX, infoStartY + 18, { width: labelColWidth });
+  doc.text(`: ${tahunAjaran}`, rightX + labelColWidth, infoStartY + 18, { width: colHalfWidth - labelColWidth });
+
+  doc.y = infoStartY + 36 + 12;
+  doc.x = 50;
+  const tableTop = doc.y;
+  const subjectColWidth = 155;
+  const teacherColWidth = 150;
+  const scoreColWidth = (pageWidth - subjectColWidth - teacherColWidth) / (columns.length || 1);
   const rowHeight = 22;
 
   // Helper untuk menggambar indikator status (✓, ✗, –) secara tajam dan konsisten di semua PDF reader
@@ -329,16 +487,22 @@ studentRoutes.get("/report/pdf", async (c) => {
   ) => {
     pdfDoc.save();
     if (type === "tuntas") {
+      // Background lingkaran hijau muda
       pdfDoc.circle(cx, cy, 7.5).fillColor("#e6f4ea").fill();
+      // Ikon checklist ✓
       pdfDoc.lineWidth(1.8).strokeColor("#0a7a3a").lineCap("round").lineJoin("round");
       pdfDoc.moveTo(cx - 3.8, cy + 0.2).lineTo(cx - 1, cy + 3.2).lineTo(cx + 3.8, cy - 2.8).stroke();
     } else if (type === "tidak_tuntas") {
+      // Background lingkaran merah muda
       pdfDoc.circle(cx, cy, 7.5).fillColor("#fce8e6").fill();
+      // Ikon silang ✗
       pdfDoc.lineWidth(1.8).strokeColor("#c0392b").lineCap("round");
       pdfDoc.moveTo(cx - 3, cy - 3).lineTo(cx + 3, cy + 3).stroke();
       pdfDoc.moveTo(cx - 3, cy + 3).lineTo(cx + 3, cy - 3).stroke();
     } else {
+      // Background lingkaran amber muda
       pdfDoc.circle(cx, cy, 7.5).fillColor("#fef3c7").fill();
+      // Ikon strip –
       pdfDoc.lineWidth(1.8).strokeColor("#d97706").lineCap("round");
       pdfDoc.moveTo(cx - 3.5, cy).lineTo(cx + 3.5, cy).stroke();
     }
@@ -346,16 +510,19 @@ studentRoutes.get("/report/pdf", async (c) => {
   };
 
   const drawHeaderRow = (yPos: number) => {
-    doc.font("Times-Bold").fontSize(11);
+    doc.font("Times-Bold").fontSize(10);
     doc.rect(50, yPos, pageWidth, rowHeight).fillAndStroke("#f3f4f6", "#d1d5db");
     doc.fillColor("#111827").text("Mata Pelajaran", 55, yPos + 6, { width: subjectColWidth - 10 });
+    doc.text("Guru Pengampu", 50 + subjectColWidth + 5, yPos + 6, { width: teacherColWidth - 10 });
     columns.forEach((col, i) => {
-      const x = 50 + subjectColWidth + i * scoreColWidth;
+      const x = 50 + subjectColWidth + teacherColWidth + i * scoreColWidth;
       doc.text(col.label, x, yPos + 6, { width: scoreColWidth, align: "center" });
     });
     let lineX = 50 + subjectColWidth;
     doc.strokeColor("#d1d5db");
     doc.moveTo(50, yPos).lineTo(50, yPos + rowHeight).stroke();
+    doc.moveTo(lineX, yPos).lineTo(lineX, yPos + rowHeight).stroke();
+    lineX += teacherColWidth;
     doc.moveTo(lineX, yPos).lineTo(lineX, yPos + rowHeight).stroke();
     columns.forEach(() => {
       lineX += scoreColWidth;
@@ -366,7 +533,7 @@ studentRoutes.get("/report/pdf", async (c) => {
   drawHeaderRow(tableTop);
   let y = tableTop + rowHeight;
 
-  doc.font("Times-Roman").fontSize(11);
+  doc.font("Times-Roman").fontSize(9.5);
   if (rows.length === 0) {
     doc.rect(50, y, pageWidth, rowHeight).strokeColor("#d1d5db").stroke();
     doc.fillColor("black").text("Belum ada raport approved.", 55, y + 6, { width: pageWidth - 10 });
@@ -378,14 +545,15 @@ studentRoutes.get("/report/pdf", async (c) => {
         y = doc.page.margins.top;
         drawHeaderRow(y);
         y += rowHeight;
-        doc.font("Times-Roman").fontSize(11);
+        doc.font("Times-Roman").fontSize(9.5);
       }
 
       doc.rect(50, y, pageWidth, rowHeight).strokeColor("#e5e7eb").stroke();
-      doc.fillColor("#1f2937").text(g.subjectName, 55, y + 6, { width: subjectColWidth - 10 });
+      doc.fillColor("#1f2937").text(g.subjectName, 55, y + 6, { width: subjectColWidth - 10, ellipsis: true, lineBreak: false });
+      doc.fillColor("#374151").text(g.teacherName || "—", 50 + subjectColWidth + 5, y + 6, { width: teacherColWidth - 10, ellipsis: true, lineBreak: false });
 
       columns.forEach((col, i) => {
-        const x = 50 + subjectColWidth + i * scoreColWidth;
+        const x = 50 + subjectColWidth + teacherColWidth + i * scoreColWidth;
         const cx = x + scoreColWidth / 2;
         const cy = y + rowHeight / 2;
 
@@ -408,6 +576,8 @@ studentRoutes.get("/report/pdf", async (c) => {
       let lineX = 50 + subjectColWidth;
       doc.strokeColor("#e5e7eb");
       doc.moveTo(50, y).lineTo(50, y + rowHeight).stroke();
+      doc.moveTo(lineX, y).lineTo(lineX, y + rowHeight).stroke();
+      lineX += teacherColWidth;
       doc.moveTo(lineX, y).lineTo(lineX, y + rowHeight).stroke();
       columns.forEach(() => {
         lineX += scoreColWidth;
@@ -496,11 +666,18 @@ studentRoutes.get("/report/pdf", async (c) => {
     y += presCatH;
   }
 
-  const tanggalCetak = new Date().toLocaleDateString("id-ID", {
+  const now = new Date();
+  const tanggalCetak = now.toLocaleDateString("id-ID", {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "Asia/Jakarta",
   });
+  const waktuCetak = formatWibDateTime(now);
+  const updaterWalas = approvalStatus.latestApprovedAt
+    ? formatWibDateTime(approvalStatus.latestApprovedAt)
+    : "-";
+  const downloaderName = user.name || (user as any).username || student.name || "Siswa";
 
   // Kotak Penjelasan Legenda (✓ Tuntas, ✗ Tidak Tuntas, – Segera Hadir)
   const legendBoxH = 74;
@@ -508,7 +685,7 @@ studentRoutes.get("/report/pdf", async (c) => {
   const signBoxWidth = 150;
   const signBoxHeight = 46;
   const signatureHeight = 104;
-  const footerReserved = 58;
+  const footerReserved = 58; // ruang di pojok bawah untuk QR code & info validasi
   const maxSignBottom = doc.page.height - doc.page.margins.bottom - footerReserved;
 
   const neededBottomHeight = 12 + legendBoxH + 16 + signatureHeight + footerReserved;
@@ -559,13 +736,7 @@ studentRoutes.get("/report/pdf", async (c) => {
   doc.text("Mengetahui Wali Murid,", leftSignX, signY, { width: signColWidth, align: "center" });
   doc.font("Times-Bold").text(student.name ?? "-", leftSignX, signY + 14, { width: signColWidth, align: "center" });
 
-  const leftBoxX = leftSignX + (signColWidth - signBoxWidth) / 2;
   const leftBoxY = signY + 30;
-  doc
-    .roundedRect(leftBoxX, leftBoxY, signBoxWidth, signBoxHeight, 4)
-    .strokeColor("#cbd5e1")
-    .lineWidth(0.8)
-    .stroke();
 
   doc.font("Times-Roman").fontSize(10).fillColor("#4b5563");
   doc.text("( .................................................. )", leftSignX, leftBoxY + signBoxHeight + 8, {
@@ -578,13 +749,7 @@ studentRoutes.get("/report/pdf", async (c) => {
   doc.text(`Mojokerto, ${tanggalCetak}`, rightSignX, signY, { width: signColWidth, align: "center" });
   doc.text(`Wali Kelas ${klass?.name ?? "-"}`, rightSignX, signY + 14, { width: signColWidth, align: "center" });
 
-  const rightBoxX = rightSignX + (signColWidth - signBoxWidth) / 2;
   const rightBoxY = signY + 30;
-  doc
-    .roundedRect(rightBoxX, rightBoxY, signBoxWidth, signBoxHeight, 4)
-    .strokeColor("#cbd5e1")
-    .lineWidth(0.8)
-    .stroke();
 
   doc.font("Times-Bold").fontSize(10.5).fillColor("#111827");
   doc.text(waliKelasName, rightSignX, rightBoxY + signBoxHeight + 6, {
@@ -611,6 +776,7 @@ studentRoutes.get("/report/pdf", async (c) => {
     const textWidth = 160;
     const textX = qrX - textWidth - 8;
 
+    // Keterangan & Tujuan QR Code di pojok kanan bawah
     doc.font("Times-Bold").fontSize(8).fillColor("#111827");
     doc.text("Validasi Keaslian Data", textX, qrY + 2, { width: textWidth, align: "right" });
 
@@ -625,15 +791,31 @@ studentRoutes.get("/report/pdf", async (c) => {
     doc.font("Times-Roman").fontSize(6.5).fillColor("#9ca3af");
     doc.text(`ID: ${publicUuid}`, textX, qrY + 31, { width: textWidth, align: "right" });
 
+    // Gambar QR Code di pojok kanan bawah
     doc.image(qrBuffer, qrX, qrY, { width: footerQrSize, height: footerQrSize });
 
+    // Keterangan KKM, Dicetak otomatis pada SIAKAD, Diunduh oleh, dan Terakhir disetujui di pojok kiri bawah
     const pageLabel = range.count > 1 ? ` (Hal. ${i + 1}/${range.count})` : "";
-    doc.font("Times-Roman").fontSize(8).fillColor("#4b5563");
+    const leftFooterWidth = textX - doc.page.margins.left - 12;
+
+    doc.font("Times-Roman").fontSize(7.5).fillColor("#4b5563");
     doc.text(
-      `KKM Kelas: ${kkm} - Dicetak otomatis oleh SIMAK pada ${tanggalCetak}${pageLabel}`,
+      `KKM Kelas: ${kkm} - Dicetak otomatis oleh SIMAK pada ${waktuCetak}${pageLabel}`,
+      doc.page.margins.left,
+      qrY + 6,
+      { width: leftFooterWidth, ellipsis: true },
+    );
+    doc.text(
+      `Diunduh oleh: ${downloaderName}`,
       doc.page.margins.left,
       qrY + 18,
-      { width: textX - doc.page.margins.left - 10 },
+      { width: leftFooterWidth, ellipsis: true },
+    );
+    doc.text(
+      `Terakhir disetujui oleh Wali Kelas: ${updaterWalas}`,
+      doc.page.margins.left,
+      qrY + 30,
+      { width: leftFooterWidth, ellipsis: true },
     );
   }
 

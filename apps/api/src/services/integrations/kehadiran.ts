@@ -20,6 +20,7 @@ export type KehadiranRekap = {
   izin: number;
   alpa: number;
   catatan?: string;
+  status?: string;
   /** opsional semester/tahun ajar konteks */
   academic_year?: string;
   updated_at?: string;
@@ -116,12 +117,13 @@ export async function applyKehadiranRekap(rows: KehadiranRekap[]) {
       continue;
     }
 
+    const isSubmitted = row.status === "submitted";
     const patch: Record<string, any> = {
       sakit: Math.max(0, Math.round(row.sakit || 0)),
       izin: Math.max(0, Math.round(row.izin || 0)),
       alpa: Math.max(0, Math.round(row.alpa || 0)),
-      isKehadiranSubmitted: true,
-      kehadiranSubmittedAt: new Date(),
+      isKehadiranSubmitted: isSubmitted,
+      kehadiranSubmittedAt: isSubmitted ? new Date() : null,
       updatedAt: new Date(),
     };
     if (row.catatan !== undefined) {
@@ -283,4 +285,5 @@ export async function unlockAllScoresInPasti(
     };
   }
 }
+
 

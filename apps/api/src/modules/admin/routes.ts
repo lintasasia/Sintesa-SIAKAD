@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { count, desc, eq, ne, and, or, sql, inArray, asc, isNull, isNotNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { INTEGRATIONS } from "../../constants/integrations.js";
 import { ROLE_DEFINITIONS } from "../../constants/roles.js";
@@ -13,6 +14,7 @@ import {
   authEvents,
   classes,
   classSubjects,
+  classSubjectAssignments,
   externalSyncLogs,
   grades,
   importJobs,
@@ -48,6 +50,7 @@ import {
 import { syncMembersFromIdp, upsertLocalFromSsoMember } from "../../services/sso-member-sync.js";
 import { isSsoConfigured } from "../../services/sso-kredensia.js";
 import { cleanUrlProtocol, env, ssoApiBaseUrl, ssoClientId, getGoogleClientId, getGoogleClientSecret, isGoogleConfigured } from "../../env.js";
+import { sortClasses, sortSubjects, sortTeachers } from "../../utils/sort.js";
 import { broadcastRealtimeEvent } from "../../services/realtime.js";
 
 export const adminRoutes = new Hono<{ Variables: AuthVariables }>();
@@ -365,9 +368,9 @@ adminRoutes.get("/classes", async (c) => {
   return c.json({
     success: true,
     data: {
-      classes: data,
+      classes: sortClasses(data),
       years,
-      teachers: teacherRows,
+      teachers: sortTeachers(teacherRows),
     },
   });
 });
@@ -527,7 +530,7 @@ adminRoutes.get("/subjects", async (c) => {
     gradeCount: gradeMap.get(r.id) ?? 0,
   }));
 
-  return c.json({ success: true, data: { subjects: data } });
+  return c.json({ success: true, data: { subjects: sortSubjects(data) } });
 });
 
 adminRoutes.post("/subjects", async (c) => {
@@ -720,7 +723,8 @@ adminRoutes.get("/teachers", async (c) => {
       .innerJoin(userRoles, eq(userRoles.userId, users.id))
       .innerJoin(roles, eq(roles.id, userRoles.roleId))
       .leftJoin(teachers, eq(teachers.userId, users.id))
-      .where(roleCondition)
+      .leftJoin(students, eq(students.userId, users.id))
+      .where(and(roleCondition, isNull(students.id)))
       .orderBy(users.name);
 
     for (const u of localUsers) {
@@ -777,7 +781,7 @@ adminRoutes.get("/teachers", async (c) => {
     }
   }
 
-  return c.json({ success: true, data: teacherList });
+  return c.json({ success: true, data: sortTeachers(teacherList) });
 });
 
 async function ensureTargetUserExists(userIdOrSsoId: string): Promise<string> {
@@ -810,12 +814,40 @@ adminRoutes.get("/teacher-assignments", async (c) => {
       subjectId: teacherSubjects.subjectId,
       subjectName: subjects.name,
       subjectCode: subjects.code,
+      targetJp: teacherSubjects.targetJp,
+      mappedJp: sql<number>`COALESCE(
+        (SELECT SUM(csa.jp)::int 
+         FROM class_subject_assignments csa 
+         WHERE csa.teacher_user_id = ${teacherSubjects.userId} 
+           AND csa.subject_id = ${teacherSubjects.subjectId}), 
+        0
+      )`.as("mapped_jp"),
     })
     .from(teacherSubjects)
     .innerJoin(users, eq(teacherSubjects.userId, users.id))
     .innerJoin(subjects, eq(teacherSubjects.subjectId, subjects.id))
     .orderBy(users.name, subjects.name);
-  return c.json({ success: true, data: list });
+
+  const formatted = list.map((item) => {
+    const targetJp = Number(item.targetJp) || 24;
+    const mappedJp = Number(item.mappedJp) || 0;
+    const deficitJp = Math.max(0, targetJp - mappedJp);
+    const excessJp = Math.max(0, mappedJp - targetJp);
+    let status: "under" | "fulfilled" | "over" = "fulfilled";
+    if (mappedJp < targetJp) status = "under";
+    else if (mappedJp > targetJp) status = "over";
+
+    return {
+      ...item,
+      targetJp,
+      mappedJp,
+      deficitJp,
+      excessJp,
+      status,
+    };
+  });
+
+  return c.json({ success: true, data: formatted });
 });
 
 adminRoutes.post("/teacher-assignments", async (c) => {
@@ -824,6 +856,7 @@ adminRoutes.post("/teacher-assignments", async (c) => {
       .object({
         userId: z.string().uuid("Guru wajib dipilih"),
         subjectId: z.string().uuid("Mapel wajib dipilih"),
+        targetJp: z.coerce.number().int().min(1, "Minimal 1 JP").max(60, "Maksimal 60 JP").default(24),
       })
       .parse(await c.req.json());
 
@@ -850,11 +883,41 @@ adminRoutes.post("/teacher-assignments", async (c) => {
       .values({
         userId: targetUserId,
         subjectId: body.subjectId,
+        targetJp: body.targetJp,
       })
       .returning();
 
     broadcastRealtimeEvent({ type: "teacher_assigned" });
     return c.json({ success: true, data: row, message: "Penugasan guru berhasil ditambahkan" }, 201);
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.put("/teacher-assignments/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = z
+      .object({
+        targetJp: z.coerce.number().int().min(1, "Minimal 1 JP").max(60, "Maksimal 60 JP"),
+      })
+      .parse(await c.req.json());
+
+    const [row] = await db
+      .update(teacherSubjects)
+      .set({
+        targetJp: body.targetJp,
+        updatedAt: new Date(),
+      })
+      .where(eq(teacherSubjects.id, id))
+      .returning();
+
+    if (!row) {
+      return c.json({ success: false, message: "Penugasan guru tidak ditemukan" }, 404);
+    }
+
+    broadcastRealtimeEvent({ type: "teacher_assigned" });
+    return c.json({ success: true, data: row, message: "Target JP guru berhasil diperbarui" });
   } catch (e) {
     return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
   }
@@ -1041,14 +1104,484 @@ adminRoutes.delete("/teaching-hours/:id", async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Mapping Tugas Mengajar Guru & Jam Pelajaran (JP) per Kelas
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/class-subject-mappings", async (c) => {
+  const classId = c.req.query("classId")?.trim();
+  const startHours = alias(teachingHours, "start_hours");
+  const endHours = alias(teachingHours, "end_hours");
+
+  let query = db
+    .select({
+      id: classSubjectAssignments.id,
+      classId: classSubjectAssignments.classId,
+      className: classes.name,
+      classGrade: classes.gradeLevel,
+      subjectId: classSubjectAssignments.subjectId,
+      subjectName: subjects.name,
+      subjectCode: subjects.code,
+      subjectType: subjects.type,
+      teacherUserId: classSubjectAssignments.teacherUserId,
+      teacherName: users.name,
+      teacherNip: users.username,
+      hari: classSubjectAssignments.hari,
+      startHourId: classSubjectAssignments.startHourId,
+      startHourLabel: startHours.label,
+      startHourTime: sql<string>`concat(${startHours.startTime}, ' - ', ${startHours.endTime})`,
+      endHourId: classSubjectAssignments.endHourId,
+      endHourLabel: endHours.label,
+      endHourTime: sql<string>`concat(${endHours.startTime}, ' - ', ${endHours.endTime})`,
+      jp: classSubjectAssignments.jp,
+      createdAt: classSubjectAssignments.createdAt,
+      updatedAt: classSubjectAssignments.updatedAt,
+    })
+    .from(classSubjectAssignments)
+    .innerJoin(classes, eq(classSubjectAssignments.classId, classes.id))
+    .innerJoin(subjects, eq(classSubjectAssignments.subjectId, subjects.id))
+    .innerJoin(users, eq(classSubjectAssignments.teacherUserId, users.id))
+    .leftJoin(startHours, eq(classSubjectAssignments.startHourId, startHours.id))
+    .leftJoin(endHours, eq(classSubjectAssignments.endHourId, endHours.id));
+
+  if (classId) {
+    const rows = await query
+      .where(eq(classSubjectAssignments.classId, classId))
+      .orderBy(subjects.name, users.name);
+    return c.json({ success: true, data: rows });
+  }
+
+  const rows = await query.orderBy(classes.name, subjects.name);
+  return c.json({ success: true, data: rows });
+});
+
+adminRoutes.post("/class-subject-mappings", async (c) => {
+  try {
+    const body = z
+      .object({
+        classId: z.string().uuid("Kelas wajib dipilih"),
+        subjectId: z.string().uuid("Mapel wajib dipilih"),
+        teacherUserId: z.string().uuid("Guru pengajar wajib dipilih"),
+        hari: z.string().optional().nullable(),
+        startHourId: z.string().uuid().optional().nullable(),
+        endHourId: z.string().uuid().optional().nullable(),
+        jp: z.coerce.number().min(1, "Minimal 1 JP").max(20, "Maksimal 20 JP").default(2),
+      })
+      .parse(await c.req.json());
+
+    const targetClassId = await ensureTargetClassExists(body.classId);
+    const targetUserId = await ensureTargetUserExists(body.teacherUserId);
+
+    // Cek target beban JP guru dari master penugasan guru
+    const [ts] = await db
+      .select({ targetJp: teacherSubjects.targetJp })
+      .from(teacherSubjects)
+      .where(
+        and(
+          eq(teacherSubjects.userId, targetUserId),
+          eq(teacherSubjects.subjectId, body.subjectId)
+        )
+      )
+      .limit(1);
+
+    const targetJp = ts?.targetJp ?? 24;
+
+    // Hitung total JP yang sudah dipetakan untuk guru ini dan mapel ini di kelas lain
+    const [mapped] = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(jp), 0)::int`,
+      })
+      .from(classSubjectAssignments)
+      .where(
+        and(
+          eq(classSubjectAssignments.teacherUserId, targetUserId),
+          eq(classSubjectAssignments.subjectId, body.subjectId),
+          ne(classSubjectAssignments.classId, targetClassId)
+        )
+      );
+
+    const otherTotal = Number(mapped?.total) || 0;
+    const newTotal = otherTotal + body.jp;
+
+    if (newTotal > targetJp) {
+      const [u] = await db.select({ name: users.name }).from(users).where(eq(users.id, targetUserId)).limit(1);
+      const teacherName = u?.name || "Guru";
+      return c.json({
+        success: false,
+        message: `Beban mengajar melebihi target! Guru ${teacherName} memiliki target maksimal ${targetJp} JP untuk mapel ini. Saat ini sudah terpetakan ${otherTotal} JP di kelas lain, alokasi ${body.jp} JP akan menjadikannya ${newTotal} JP.`,
+      }, 400);
+    }
+
+    const hariVal = body.hari?.trim() || null;
+    const startHourIdVal = body.startHourId || null;
+    const endHourIdVal = body.endHourId || null;
+
+    let row;
+    const existing = await db
+      .select({ id: classSubjectAssignments.id })
+      .from(classSubjectAssignments)
+      .where(
+        and(
+          eq(classSubjectAssignments.classId, targetClassId),
+          eq(classSubjectAssignments.subjectId, body.subjectId),
+          eq(classSubjectAssignments.teacherUserId, targetUserId),
+          hariVal ? eq(classSubjectAssignments.hari, hariVal) : isNull(classSubjectAssignments.hari),
+          startHourIdVal ? eq(classSubjectAssignments.startHourId, startHourIdVal) : isNull(classSubjectAssignments.startHourId)
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(classSubjectAssignments)
+        .set({
+          jp: body.jp,
+          hari: hariVal,
+          startHourId: startHourIdVal,
+          endHourId: endHourIdVal,
+          updatedAt: new Date(),
+        })
+        .where(eq(classSubjectAssignments.id, existing[0].id))
+        .returning();
+      row = updated;
+    } else {
+      const [inserted] = await db
+        .insert(classSubjectAssignments)
+        .values({
+          classId: targetClassId,
+          subjectId: body.subjectId,
+          teacherUserId: targetUserId,
+          hari: hariVal,
+          startHourId: startHourIdVal,
+          endHourId: endHourIdVal,
+          jp: body.jp,
+        })
+        .returning();
+      row = inserted;
+    }
+
+    // Kompatibilitas dengan class_subjects jika teacherId ada
+    const [t] = await db.select({ id: teachers.id }).from(teachers).where(eq(teachers.userId, targetUserId)).limit(1);
+    if (t) {
+      await db
+        .insert(classSubjects)
+        .values({
+          classId: targetClassId,
+          subjectId: body.subjectId,
+          teacherId: t.id,
+        })
+        .onConflictDoNothing();
+    }
+
+    broadcastRealtimeEvent({ type: "schedule_updated", classId: targetClassId });
+    return c.json({ success: true, data: row, message: "Pemetaan tugas guru berhasil disimpan" }, 201);
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.put("/class-subject-mappings/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = z
+      .object({
+        teacherUserId: z.string().uuid().optional(),
+        hari: z.string().optional().nullable(),
+        startHourId: z.string().uuid().optional().nullable(),
+        endHourId: z.string().uuid().optional().nullable(),
+        jp: z.coerce.number().min(1, "Minimal 1 JP").max(20, "Maksimal 20 JP").optional(),
+      })
+      .parse(await c.req.json());
+
+    const [existing] = await db
+      .select()
+      .from(classSubjectAssignments)
+      .where(eq(classSubjectAssignments.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return c.json({ success: false, message: "Pemetaan tidak ditemukan" }, 404);
+    }
+
+    const effectiveTeacherUserId = body.teacherUserId
+      ? await ensureTargetUserExists(body.teacherUserId)
+      : existing.teacherUserId;
+    const effectiveJp = body.jp !== undefined ? body.jp : existing.jp;
+
+    // Cek target JP jika JP atau guru berubah
+    if (body.jp !== undefined || body.teacherUserId) {
+      const [ts] = await db
+        .select({ targetJp: teacherSubjects.targetJp })
+        .from(teacherSubjects)
+        .where(
+          and(
+            eq(teacherSubjects.userId, effectiveTeacherUserId),
+            eq(teacherSubjects.subjectId, existing.subjectId)
+          )
+        )
+        .limit(1);
+
+      const targetJp = ts?.targetJp ?? 24;
+
+      const [mapped] = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(jp), 0)::int`,
+        })
+        .from(classSubjectAssignments)
+        .where(
+          and(
+            eq(classSubjectAssignments.teacherUserId, effectiveTeacherUserId),
+            eq(classSubjectAssignments.subjectId, existing.subjectId),
+            ne(classSubjectAssignments.id, id)
+          )
+        );
+
+      const otherTotal = Number(mapped?.total) || 0;
+      const newTotal = otherTotal + effectiveJp;
+
+      if (newTotal > targetJp) {
+        const [u] = await db.select({ name: users.name }).from(users).where(eq(users.id, effectiveTeacherUserId)).limit(1);
+        const teacherName = u?.name || "Guru";
+        return c.json({
+          success: false,
+          message: `Beban mengajar melebihi target! Guru ${teacherName} memiliki target maksimal ${targetJp} JP untuk mapel ini. Saat ini sudah terpetakan ${otherTotal} JP di kelas lain, alokasi ${effectiveJp} JP akan menjadikannya ${newTotal} JP.`,
+        }, 400);
+      }
+    }
+
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    if (body.jp !== undefined) updateData.jp = body.jp;
+    if (body.teacherUserId) updateData.teacherUserId = effectiveTeacherUserId;
+    if (body.hari !== undefined) updateData.hari = body.hari?.trim() || null;
+    if (body.startHourId !== undefined) updateData.startHourId = body.startHourId || null;
+    if (body.endHourId !== undefined) updateData.endHourId = body.endHourId || null;
+
+    const [row] = await db
+      .update(classSubjectAssignments)
+      .set(updateData)
+      .where(eq(classSubjectAssignments.id, id))
+      .returning();
+
+    broadcastRealtimeEvent({ type: "schedule_updated", classId: row.classId });
+    return c.json({ success: true, data: row, message: "Pemetaan tugas guru berhasil diperbarui" });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.delete("/class-subject-mappings/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const [row] = await db
+      .delete(classSubjectAssignments)
+      .where(eq(classSubjectAssignments.id, id))
+      .returning();
+
+    if (!row) {
+      return c.json({ success: false, message: "Pemetaan tidak ditemukan" }, 404);
+    }
+
+    broadcastRealtimeEvent({ type: "schedule_updated", classId: row.classId });
+    return c.json({ success: true, data: row, message: "Pemetaan tugas guru berhasil dihapus" });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.post("/class-subject-mappings/auto-populate", async (c) => {
+  try {
+    const body = z
+      .object({
+        classId: z.string().uuid("Kelas wajib dipilih"),
+        defaultJp: z.coerce.number().min(1).max(20).default(2),
+      })
+      .parse(await c.req.json());
+
+    const targetClassId = await ensureTargetClassExists(body.classId);
+
+    // Ambil semua master penugasan guru (teacher_subjects) yang mapelnya aktif
+    const assignedTeachers = await db
+      .select({
+        userId: teacherSubjects.userId,
+        subjectId: teacherSubjects.subjectId,
+      })
+      .from(teacherSubjects)
+      .innerJoin(subjects, eq(teacherSubjects.subjectId, subjects.id))
+      .where(eq(subjects.isActive, true));
+
+    if (assignedTeachers.length === 0) {
+      return c.json({
+        success: false,
+        message: "Belum ada guru yang ditugaskan ke mapel di tab 'Penugasan Guru'. Silakan tugaskan guru terlebih dahulu.",
+      }, 400);
+    }
+
+    // Ambil pemetaan yang sudah ada di kelas ini agar tidak menduplikasi
+    const existing = await db
+      .select({
+        subjectId: classSubjectAssignments.subjectId,
+        teacherUserId: classSubjectAssignments.teacherUserId,
+      })
+      .from(classSubjectAssignments)
+      .where(eq(classSubjectAssignments.classId, targetClassId));
+
+    const existingKeys = new Set(existing.map((e) => `${e.subjectId}|${e.teacherUserId}`));
+
+    let insertedCount = 0;
+    for (const at of assignedTeachers) {
+      const key = `${at.subjectId}|${at.userId}`;
+      if (!existingKeys.has(key)) {
+        await db.insert(classSubjectAssignments).values({
+          classId: targetClassId,
+          subjectId: at.subjectId,
+          teacherUserId: at.userId,
+          jp: body.defaultJp,
+        }).onConflictDoNothing();
+        existingKeys.add(key);
+        insertedCount++;
+      }
+    }
+
+    broadcastRealtimeEvent({ type: "schedule_updated", classId: targetClassId });
+    return c.json({
+      success: true,
+      message: `Berhasil menautkan ${insertedCount} mapel dan guru ke kelas ini (masing-masing ${body.defaultJp} JP).`,
+      data: { insertedCount },
+    });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.post("/class-subject-mappings/copy-class", async (c) => {
+  try {
+    const body = z
+      .object({
+        sourceClassId: z.string().uuid("Kelas sumber wajib dipilih"),
+        targetClassId: z.string().uuid("Kelas tujuan wajib dipilih"),
+      })
+      .parse(await c.req.json());
+
+    if (body.sourceClassId === body.targetClassId) {
+      return c.json({ success: false, message: "Kelas sumber dan kelas tujuan tidak boleh sama." }, 400);
+    }
+
+    const srcClassId = await ensureTargetClassExists(body.sourceClassId);
+    const destClassId = await ensureTargetClassExists(body.targetClassId);
+
+    const sourceRows = await db
+      .select()
+      .from(classSubjectAssignments)
+      .where(eq(classSubjectAssignments.classId, srcClassId));
+
+    if (sourceRows.length === 0) {
+      return c.json({ success: false, message: "Kelas sumber belum memiliki pemetaan mapel." }, 400);
+    }
+
+    let copiedCount = 0;
+    for (const r of sourceRows) {
+      const existing = await db
+        .select({ id: classSubjectAssignments.id })
+        .from(classSubjectAssignments)
+        .where(
+          and(
+            eq(classSubjectAssignments.classId, destClassId),
+            eq(classSubjectAssignments.subjectId, r.subjectId),
+            eq(classSubjectAssignments.teacherUserId, r.teacherUserId),
+            r.hari ? eq(classSubjectAssignments.hari, r.hari) : isNull(classSubjectAssignments.hari),
+            r.startHourId ? eq(classSubjectAssignments.startHourId, r.startHourId) : isNull(classSubjectAssignments.startHourId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(classSubjectAssignments)
+          .set({
+            jp: r.jp,
+            hari: r.hari,
+            startHourId: r.startHourId,
+            endHourId: r.endHourId,
+            updatedAt: new Date(),
+          })
+          .where(eq(classSubjectAssignments.id, existing[0].id));
+      } else {
+        await db.insert(classSubjectAssignments).values({
+          classId: destClassId,
+          subjectId: r.subjectId,
+          teacherUserId: r.teacherUserId,
+          jp: r.jp,
+          hari: r.hari,
+          startHourId: r.startHourId,
+          endHourId: r.endHourId,
+        });
+      }
+      copiedCount++;
+    }
+
+    broadcastRealtimeEvent({ type: "schedule_updated", classId: destClassId });
+    return c.json({
+      success: true,
+      message: `Berhasil menyalin ${copiedCount} pemetaan tugas guru & JP ke kelas tujuan.`,
+      data: { copiedCount },
+    });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
+adminRoutes.get("/class-subject-mappings/stats", async (c) => {
+  try {
+    const all = await db
+      .select({
+        id: classSubjectAssignments.id,
+        classId: classSubjectAssignments.classId,
+        className: classes.name,
+        subjectId: classSubjectAssignments.subjectId,
+        teacherUserId: classSubjectAssignments.teacherUserId,
+        jp: classSubjectAssignments.jp,
+      })
+      .from(classSubjectAssignments)
+      .innerJoin(classes, eq(classSubjectAssignments.classId, classes.id));
+
+    const totalMappings = all.length;
+    const totalJp = all.reduce((sum, r) => sum + (r.jp || 0), 0);
+
+    const classMap = new Map<string, { classId: string; className: string; mapelCount: number; totalJp: number }>();
+    for (const r of all) {
+      const entry = classMap.get(r.classId) || {
+        classId: r.classId,
+        className: r.className,
+        mapelCount: 0,
+        totalJp: 0,
+      };
+      entry.mapelCount++;
+      entry.totalJp += r.jp || 0;
+      classMap.set(r.classId, entry);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        totalMappings,
+        totalJp,
+        totalClassesMapped: classMap.size,
+        classesSummary: Array.from(classMap.values()),
+      },
+    });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 400);
+  }
+});
+
 adminRoutes.get("/journals/monitoring", async (c) => {
   const dateStr = c.req.query("date")?.trim();
   const classId = c.req.query("classId")?.trim();
   const classNameParam = c.req.query("className")?.trim();
   const teacherId = c.req.query("teacherId")?.trim();
-  const teacherNameFilter = c.req.query("teacherName")?.trim().toLowerCase();
+  const teacherNameParam = c.req.query("teacherName")?.trim().toLowerCase();
 
-  if (!dateStr || (!classId && !teacherId && !teacherNameFilter)) {
+  if (!dateStr || (!classId && !teacherId)) {
     return c.json({ success: false, message: "date serta salah satu dari classId atau teacherId wajib diisi" }, 400);
   }
 
@@ -1059,11 +1592,11 @@ adminRoutes.get("/journals/monitoring", async (c) => {
       .from(teachingHours)
       .orderBy(sql`CAST(REGEXP_REPLACE(label, '[^0-9]', '', 'g') AS INTEGER) ASC`, teachingHours.startTime);
 
-    // 2. Bangun kondisi filter
     const conditions = [
       eq(teacherJournals.date, dateStr),
       isNull(teacherJournals.deletedAt),
     ];
+
     if (classId) {
       const isRawUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classId);
       const cleanIdName = classId.replace(/^kelas\s+/i, "").trim();
@@ -1087,10 +1620,11 @@ adminRoutes.get("/journals/monitoring", async (c) => {
       }
       conditions.push(or(...clsConds)!);
     }
+
     if (teacherId) {
       const isTeacherUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId);
       const tConds = [];
-      let resolvedTeacherName = teacherNameFilter || "";
+      let resolvedTeacherName = teacherNameParam || "";
 
       if (isTeacherUuid) {
         tConds.push(eq(teacherJournals.teacherUserId, teacherId));
@@ -1130,8 +1664,8 @@ adminRoutes.get("/journals/monitoring", async (c) => {
       }
     }
 
-    // 3. Ambil jurnal sesuai filter, join dengan users untuk dapat nama guru
-    let journals = await db
+    // 2. Ambil jurnal sesuai filter
+    const journals = await db
       .select({
         id: teacherJournals.id,
         date: teacherJournals.date,
@@ -1144,18 +1678,13 @@ adminRoutes.get("/journals/monitoring", async (c) => {
         materi: teacherJournals.materi,
         presenceInfo: teacherJournals.presenceInfo,
         status: teacherJournals.status,
-        teacherUserId: teacherJournals.teacherUserId,
         teacherName: users.name,
       })
       .from(teacherJournals)
       .leftJoin(users, eq(teacherJournals.teacherUserId, users.id))
       .where(and(...conditions));
 
-    if (teacherNameFilter && !teacherId) {
-      journals = journals.filter((j) => (j.teacherName || "").toLowerCase().includes(teacherNameFilter));
-    }
-
-    // 4. Gabungkan per jam mengajar: jam mengajar yang belum diisi dikembalikan sebagai row kosong (strip)
+    // 3. Gabungkan per jam mengajar: jam mengajar yang belum diisi dikembalikan sebagai row kosong (strip)
     const data: Array<{
       teachingHourId: string;
       label: string;
@@ -1164,7 +1693,6 @@ adminRoutes.get("/journals/monitoring", async (c) => {
       journalId: string | null;
       classId: string | null;
       className: string | null;
-      teacherUserId: string | null;
       teacherName: string | null;
       subjectName: string | null;
       materi: string | null;
@@ -1183,7 +1711,6 @@ adminRoutes.get("/journals/monitoring", async (c) => {
           journalId: null,
           classId: null,
           className: null,
-          teacherUserId: null,
           teacherName: null,
           subjectName: null,
           materi: null,
@@ -1200,7 +1727,6 @@ adminRoutes.get("/journals/monitoring", async (c) => {
             journalId: j.id,
             classId: j.classId ?? null,
             className: j.className ?? null,
-            teacherUserId: j.teacherUserId ?? null,
             teacherName: j.teacherName ?? null,
             subjectName: j.subjectName ?? null,
             materi: j.materi ?? null,
@@ -1212,6 +1738,366 @@ adminRoutes.get("/journals/monitoring", async (c) => {
     }
 
     return c.json({ success: true, data });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 500);
+  }
+});
+
+/**
+ * GET /admin/grades/export?classId=...&subjectId=...&status=...
+ * Mengambil seluruh siswa di kelas terpilih (termasuk rekap presensi & poin GDS),
+ * komponen penilaian aktif, daftar mata pelajaran, dan seluruh nilai (grades)
+ * untuk keperluan ekspor Excel Leger Kelas, Rekap Nilai per Mapel, maupun Rekap Presensi & GDS.
+ */
+adminRoutes.get("/grades/export", async (c) => {
+const user = c.get("user");
+  const isAdmin = user.roles.includes("admin") || user.roles.includes("superadmin");
+
+  const rawClassId = c.req.query("classId")?.trim();
+  const classNameQuery = c.req.query("className")?.trim();
+  const subjectId = c.req.query("subjectId")?.trim();
+  const statusFilter = c.req.query("status")?.trim();
+
+  if (!rawClassId) {
+    return c.json({ success: false, message: "classId wajib diisi" }, 400);
+  }
+
+  try {
+    // 1. Pastikan kelas tersedia di lokal (sinkronkan dari SSO bila perlu)
+    const ensuredClassId = await ensureTargetClassExists(rawClassId);
+    const isRawUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawClassId);
+    const isEnsuredUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ensuredClassId);
+    const cleanRawName = (classNameQuery || rawClassId).replace(/^kelas\s+/i, "").trim();
+
+    const classConds = [
+      eq(classes.name, rawClassId),
+      eq(classes.name, cleanRawName),
+      sql`LOWER(TRIM(${classes.name})) = LOWER(TRIM(${rawClassId}))`,
+      sql`LOWER(TRIM(${classes.name})) = LOWER(TRIM(${cleanRawName}))`,
+    ];
+    if (isRawUuid) classConds.push(eq(classes.id, rawClassId));
+    if (isEnsuredUuid) classConds.push(eq(classes.id, ensuredClassId));
+
+    const [targetClass] = await db
+      .select()
+      .from(classes)
+      .where(or(...classConds))
+      .limit(1);
+
+    const resolvedClassId = targetClass?.id ?? ensuredClassId;
+    const className = (targetClass?.name ?? classNameQuery ?? cleanRawName).replace(/^kelas\s+/i, "").trim();
+
+    // 2. Ambil daftar siswa aktif di kelas tersebut (beserta presensi & poin GDS)
+    const buildStudentConds = () => {
+      const conds = [
+        eq(students.kelasLabel, className),
+        sql`LOWER(TRIM(${students.kelasLabel})) = LOWER(TRIM(${className}))`,
+        sql`LOWER(TRIM(${students.kelasLabel})) = LOWER(TRIM(${`Kelas ${className}`}))`,
+      ];
+      if (isRawUuid) conds.push(eq(students.classId, rawClassId));
+      if (isEnsuredUuid || targetClass?.id) conds.push(eq(students.classId, resolvedClassId));
+      return conds;
+    };
+
+    const studentSelectShape = {
+      id: students.id,
+      name: students.name,
+      nis: students.nis,
+      nisn: students.nisn,
+      gender: students.gender,
+      sakit: students.sakit,
+      izin: students.izin,
+      alpa: students.alpa,
+      catatanKehadiran: students.catatanKehadiran,
+      poinGds: students.poinGds,
+      catatanGds: students.catatanGds,
+    };
+
+    let roster = await db
+      .select(studentSelectShape)
+      .from(students)
+      .where(and(eq(students.isActive, true), or(...buildStudentConds())))
+      .orderBy(students.name);
+
+    // Fallback sinkronisasi otomatis dari SSO apabila roster kelas belum ada di DB lokal
+    if (roster.length === 0 && env.SSO_API_KEY && env.SSO_API_BASE_URL) {
+      try {
+        let ssoClassId = rawClassId;
+        try {
+          const ssoClasses = await ssoListKelas();
+          if (ssoClasses.data && Array.isArray(ssoClasses.data)) {
+            const matched = ssoClasses.data.find(
+              (k) =>
+                k.id === rawClassId ||
+                k.id === resolvedClassId ||
+                k.nama_kelas.toLowerCase() === className.toLowerCase()
+            );
+            if (matched) ssoClassId = matched.id;
+          }
+        } catch (_) {}
+
+        const url = `${env.SSO_API_BASE_URL}/kelas/${ssoClassId}`;
+        const ssoRes = await fetch(url, {
+          headers: {
+            "X-API-Key": env.SSO_API_KEY,
+            Origin: env.FRONTEND_URL || "https://simak.sman3mjk.sch.id",
+          },
+        });
+        const json = (await ssoRes.json()) as any;
+        if (json?.success && Array.isArray(json?.data?.siswa) && json.data.siswa.length > 0) {
+          for (const s of json.data.siswa) {
+            try {
+              const ssoMemberId = s.id || null;
+              const nis = s.nip_nis || s.nis || null;
+              const name = s.nama_lengkap;
+              const findConds = [];
+              if (ssoMemberId) findConds.push(eq(students.ssoMemberId, ssoMemberId));
+              if (nis) findConds.push(eq(students.nis, nis));
+              if (name) findConds.push(eq(students.name, name));
+
+              const existing = findConds.length > 0
+                ? (await db.select().from(students).where(or(...findConds)).limit(1))[0]
+                : null;
+
+              const validClsUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedClassId);
+              if (existing) {
+                await db
+                  .update(students)
+                  .set({
+                    classId: validClsUuid ? resolvedClassId : existing.classId,
+                    kelasLabel: className,
+                    ssoMemberId: ssoMemberId || existing.ssoMemberId,
+                    isActive: true,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(students.id, existing.id));
+              } else if (name) {
+                await db
+                  .insert(students)
+                  .values({
+                    name,
+                    nis,
+                    ssoMemberId,
+                    classId: validClsUuid ? resolvedClassId : null,
+                    kelasLabel: className,
+                    isActive: true,
+                    memberStatus: "siswa",
+                  })
+                  .onConflictDoNothing();
+              }
+            } catch (_) {}
+          }
+          roster = await db
+            .select(studentSelectShape)
+            .from(students)
+            .where(and(eq(students.isActive, true), or(...buildStudentConds())))
+            .orderBy(students.name);
+        }
+      } catch (e) {
+        console.error("[/grades/export] SSO roster fallback error:", e);
+      }
+    }
+
+    // 3. Ambil wali kelas jika ada & cek apakah user saat ini adalah wali kelas dari kelas ini
+    let homeroomTeacherName: string | null = null;
+    let isHomeroomForThisClass = false;
+    if (targetClass?.id) {
+      const hrRows = await db
+        .select({ userId: homeroomAssignments.userId, teacherName: users.name })
+        .from(homeroomAssignments)
+        .innerJoin(users, eq(homeroomAssignments.userId, users.id))
+        .where(eq(homeroomAssignments.classId, targetClass.id));
+      homeroomTeacherName = hrRows[0]?.teacherName ?? null;
+      isHomeroomForThisClass = hrRows.some((hr) => hr.userId === user.id);
+    }
+
+    // 4. Ambil daftar mata pelajaran aktif beserta guru pengampunya
+    let allSubjects = await db
+      .select({
+        id: subjects.id,
+        code: subjects.code,
+        name: subjects.name,
+        type: subjects.type,
+      })
+      .from(subjects)
+      .where(eq(subjects.isActive, true))
+      .orderBy(subjects.name);
+
+    // Jika bukan admin/superadmin dan bukan wali kelas dari kelas ini, tampilkan mapel yang diampu/diisi guru tersebut
+    if (!isAdmin && !isHomeroomForThisClass) {
+      const assignedRows = await db
+        .select({ subjectId: teacherSubjects.subjectId })
+        .from(teacherSubjects)
+        .where(eq(teacherSubjects.userId, user.id));
+      const journalSubjRows = await db
+        .selectDistinct({ subjectId: teacherJournals.subjectId })
+        .from(teacherJournals)
+        .where(and(eq(teacherJournals.teacherUserId, user.id), isNull(teacherJournals.deletedAt)));
+      const assignedIds = new Set<string>();
+      for (const r of assignedRows) if (r.subjectId) assignedIds.add(r.subjectId);
+      for (const r of journalSubjRows) if (r.subjectId) assignedIds.add(r.subjectId);
+
+      if (assignedIds.size > 0) {
+        allSubjects = allSubjects.filter((s) => assignedIds.has(s.id));
+      }
+    }
+
+    // Ambil pemetaan guru mapel
+    const subjectTeachersRows = await db
+      .select({
+        subjectId: teacherSubjects.subjectId,
+        teacherName: users.name,
+      })
+      .from(teacherSubjects)
+      .innerJoin(users, eq(teacherSubjects.userId, users.id));
+
+    const subjectTeacherMap = new Map<string, string[]>();
+    for (const st of subjectTeachersRows) {
+      const arr = subjectTeacherMap.get(st.subjectId) ?? [];
+      if (!arr.includes(st.teacherName)) arr.push(st.teacherName);
+      subjectTeacherMap.set(st.subjectId, arr);
+    }
+
+    // 5. Ambil komponen penilaian (auto-seed bila masih kosong)
+    let components = await db
+      .select()
+      .from(assessmentComponents)
+      .orderBy(asc(assessmentComponents.sortOrder), asc(assessmentComponents.createdAt));
+
+    if (components.length === 0) {
+      await db
+        .insert(assessmentComponents)
+        .values([
+          { code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
+          { code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
+          { code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
+          { code: "uh2", name: "UH2", type: "UJIAN", status: "disabled", sortOrder: 4 },
+          { code: "t2", name: "T2", type: "TUGAS", status: "disabled", sortOrder: 5 },
+        ])
+        .onConflictDoNothing();
+      components = await db
+        .select()
+        .from(assessmentComponents)
+        .orderBy(asc(assessmentComponents.sortOrder), asc(assessmentComponents.createdAt));
+    }
+
+    // 6. Ambil nilai (grades) untuk kelas tersebut (atau untuk siswa di roster)
+    const studentIds = roster.map((s) => s.id);
+    const gradeConds = [isNull(grades.deletedAt)];
+
+    if (studentIds.length > 0 && targetClass?.id) {
+      gradeConds.push(or(eq(grades.classId, targetClass.id), inArray(grades.studentId, studentIds))!);
+    } else if (targetClass?.id) {
+      gradeConds.push(eq(grades.classId, targetClass.id));
+    } else if (studentIds.length > 0) {
+      gradeConds.push(inArray(grades.studentId, studentIds));
+    } else {
+      gradeConds.push(sql`1=0`);
+    }
+
+    const allowedSubjectIds = allSubjects.map((s) => s.id);
+    if (subjectId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subjectId)) {
+      gradeConds.push(eq(grades.subjectId, subjectId));
+    } else if (!isAdmin && !isHomeroomForThisClass && allowedSubjectIds.length > 0) {
+      gradeConds.push(inArray(grades.subjectId, allowedSubjectIds));
+    }
+
+    if (statusFilter && statusFilter !== "all") {
+      gradeConds.push(eq(grades.status, statusFilter));
+    }
+
+    const gradeRows = await db
+      .select({
+        id: grades.id,
+        studentId: grades.studentId,
+        classId: grades.classId,
+        subjectId: grades.subjectId,
+        uh1: grades.uh1,
+        t1: grades.t1,
+        sts: grades.sts,
+        uh2: grades.uh2,
+        t2: grades.t2,
+        status: grades.status,
+        updatedAt: grades.updatedAt,
+      })
+      .from(grades)
+      .where(and(...gradeConds));
+
+    return c.json({
+      success: true,
+      data: {
+        classInfo: {
+          id: resolvedClassId,
+          name: className,
+          homeroomTeacherName,
+        },
+        roster,
+        subjects: allSubjects.map((s) => ({
+          ...s,
+          teacherNames: (subjectTeacherMap.get(s.id) ?? []).join(", ") || null,
+        })),
+        components,
+        grades: gradeRows,
+      },
+    });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 500);
+  }
+});
+
+/**
+ * GET /admin/assignments/export
+ * Mengambil daftar pembagian tugas mengajar guru mata pelajaran, penugasan wali kelas,
+ * dan daftar jam pelajaran aktif untuk ekspor SK / Rekap Penugasan Akademik.
+ */
+adminRoutes.get("/assignments/export", async (c) => {
+  try {
+    const [subjectAssignments, homerooms, hours] = await Promise.all([
+      db
+        .select({
+          id: teacherSubjects.id,
+          userId: teacherSubjects.userId,
+          teacherName: users.name,
+          teacherNip: users.username,
+          teacherEmail: users.email,
+          subjectId: teacherSubjects.subjectId,
+          subjectName: subjects.name,
+          subjectCode: subjects.code,
+          subjectType: subjects.type,
+        })
+        .from(teacherSubjects)
+        .innerJoin(users, eq(teacherSubjects.userId, users.id))
+        .innerJoin(subjects, eq(teacherSubjects.subjectId, subjects.id))
+        .orderBy(users.name, subjects.name),
+      db
+        .select({
+          id: homeroomAssignments.id,
+          userId: homeroomAssignments.userId,
+          teacherName: users.name,
+          teacherNip: users.username,
+          classId: homeroomAssignments.classId,
+          className: classes.name,
+          gradeLevel: classes.gradeLevel,
+          academicYear: classes.academicYear,
+        })
+        .from(homeroomAssignments)
+        .innerJoin(users, eq(homeroomAssignments.userId, users.id))
+        .innerJoin(classes, eq(homeroomAssignments.classId, classes.id))
+        .orderBy(classes.name, users.name),
+      db
+        .select()
+        .from(teachingHours)
+        .orderBy(sql`CAST(REGEXP_REPLACE(label, '[^0-9]', '', 'g') AS INTEGER) ASC`, teachingHours.startTime),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        subjectAssignments,
+        homerooms,
+        hours,
+      },
+    });
   } catch (e) {
     return c.json({ success: false, message: e instanceof Error ? e.message : "error" }, 500);
   }
@@ -1443,7 +2329,7 @@ adminRoutes.get("/grades/export", async (c) => {
         const ssoRes = await fetch(url, {
           headers: {
             "X-API-Key": env.SSO_API_KEY,
-            Origin: env.FRONTEND_URL || "https://simak.sman3mjk.sch.id",
+            Origin: env.FRONTEND_URL || "https://siakad.sman3mjk.sch.id",
           },
         });
         const json = (await ssoRes.json()) as any;
@@ -2844,8 +3730,24 @@ adminRoutes.post("/alumni/purge", async (c) => {
 // Keluar / mutasi
 adminRoutes.get("/keluar", async (c) => {
   const keluarList = await db
-    .select()
+    .select({
+      id: students.id,
+      name: students.name,
+      nis: students.nis,
+      nisn: sql<string>`COALESCE(NULLIF(${students.nisn}, ''), ${students.nis})`.as("nisn"),
+      memberStatus: students.memberStatus,
+      classId: students.classId,
+      className: sql<string>`COALESCE(
+        ${classes.name},
+        (SELECT c2.name FROM academic_histories ah LEFT JOIN classes c2 ON ah.class_id = c2.id WHERE ah.student_id = ${students.id} AND ah.class_id IS NOT NULL ORDER BY ah.created_at DESC LIMIT 1),
+        (SELECT ah.class_name FROM academic_histories ah WHERE ah.student_id = ${students.id} AND ah.class_name IS NOT NULL ORDER BY ah.created_at DESC LIMIT 1)
+      )`.as("className"),
+      statusNote: students.statusNote,
+      updatedAt: students.updatedAt,
+      createdAt: students.createdAt,
+    })
     .from(students)
+    .leftJoin(classes, eq(students.classId, classes.id))
     .where(eq(students.memberStatus, "keluar"))
     .orderBy(students.name);
   const siswaList = await db
@@ -2853,7 +3755,7 @@ adminRoutes.get("/keluar", async (c) => {
       id: students.id,
       name: students.name,
       nis: students.nis,
-      nisn: students.nisn,
+      nisn: sql<string>`COALESCE(NULLIF(${students.nisn}, ''), ${students.nis})`.as("nisn"),
       className: classes.name,
     })
     .from(students)
@@ -3033,7 +3935,15 @@ adminRoutes.get("/sso/members", async (c) => {
       }
     }
 
-    const studentMap = new Map<string, string>();
+    type UserExtraInfo = {
+      kelas?: string;
+      agama?: string | null;
+      nik?: string | null;
+      jk?: string | null;
+      noTelp?: string | null;
+      tglLahir?: string | null;
+    };
+    const extraMap = new Map<string, UserExtraInfo>();
     if (userIds.length > 0) {
       const studentRows = await db
         .select({
@@ -3041,14 +3951,27 @@ adminRoutes.get("/sso/members", async (c) => {
           ssoMemberId: students.ssoMemberId,
           kelasLabel: students.kelasLabel,
           className: classes.name,
+          agama: students.agama,
+          nik: students.nik,
+          jk: students.jenisKelamin,
+          noTelp: students.noTelepon,
+          tglLahir: students.tanggalLahir,
         })
         .from(students)
         .leftJoin(classes, eq(students.classId, classes.id));
 
       for (const s of studentRows) {
-        const kName = s.className || s.kelasLabel;
-        if (s.userId && kName) studentMap.set(s.userId, kName);
-        if (s.ssoMemberId && kName) studentMap.set(s.ssoMemberId, kName);
+        const kName = s.className || s.kelasLabel || undefined;
+        const info: UserExtraInfo = {
+          kelas: kName,
+          agama: s.agama,
+          nik: s.nik,
+          jk: s.jk,
+          noTelp: s.noTelp,
+          tglLahir: s.tglLahir,
+        };
+        if (s.userId) extraMap.set(s.userId, info);
+        if (s.ssoMemberId) extraMap.set(s.ssoMemberId, info);
       }
     }
 
@@ -3056,21 +3979,25 @@ adminRoutes.get("/sso/members", async (c) => {
     const offset = (page - 1) * perPage;
     const paginated = localUsers.slice(offset, offset + perPage);
 
-    const formattedData = paginated.map((u) => ({
-      id: u.id,
-      nama_lengkap: u.nama_lengkap,
-      email: u.email,
-      nik: null,
-      nip_nis: u.nip_nis,
-      jk: null,
-      no_telp: null,
-      tgl_lahir: null,
-      is_active: u.isActive,
-      claimed_at: null,
-      created_at: u.createdAt ? new Date(u.createdAt).toISOString() : null,
-      roles: userRoleMap.get(u.id) ?? [{ id: "guru", nama_role: "Guru" }],
-      kelas: studentMap.has(u.id) ? { nama_kelas: studentMap.get(u.id)! } : null,
-    }));
+    const formattedData = paginated.map((u) => {
+      const info = extraMap.get(u.id);
+      return {
+        id: u.id,
+        nama_lengkap: u.nama_lengkap,
+        email: u.email,
+        nik: info?.nik ?? null,
+        nip_nis: u.nip_nis,
+        jk: info?.jk ?? null,
+        agama: info?.agama ?? null,
+        no_telp: info?.noTelp ?? null,
+        tgl_lahir: info?.tglLahir ?? null,
+        is_active: u.isActive,
+        claimed_at: null,
+        created_at: u.createdAt ? new Date(u.createdAt).toISOString() : null,
+        roles: userRoleMap.get(u.id) ?? [{ id: "guru", nama_role: "Guru" }],
+        kelas: info?.kelas ? { nama_kelas: info.kelas } : null,
+      };
+    });
 
     return c.json({
       success: true,
@@ -3324,7 +4251,7 @@ adminRoutes.get("/sso/kelas", async (c) => {
     }
 
     const result = Array.from(resultMap.values());
-    return c.json({ success: true, data: result });
+    return c.json({ success: true, data: sortClasses(result) });
   } catch (e) {
     return c.json({ success: false, message: e instanceof Error ? e.message : "Gagal memuat data kelas" }, 500);
   }
@@ -3346,6 +4273,7 @@ adminRoutes.get("/sso/users-export", requireRoles("superadmin"), async (c) => {
             phone: m.no_telp,
             birthDate: m.tgl_lahir,
             gender: m.jk,
+            agama: m.agama,
             isActive: m.is_active,
             roles: m.roles?.map((r) => r.nama_role) ?? [],
             class: m.kelas ? `${m.kelas.nama_kelas}` : null,
@@ -3576,6 +4504,7 @@ adminRoutes.post("/sso/sync-kelas-roster", async (c) => {
 // ============================================================
 // MONITORING JURNAL GURU (Aksi Koreksi, Edit & Soft Delete)
 // ============================================================
+
 
 /**
  * POST /admin/journals/koreksi-ulang

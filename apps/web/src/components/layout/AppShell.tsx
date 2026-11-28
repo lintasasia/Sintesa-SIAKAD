@@ -22,7 +22,8 @@ const NAV_MANAJEMEN_AKADEMIK: NavItem[] = [
   { to: "/admin/students", label: "Siswa & Pengguna", icon: "group" },
   { to: "/admin/classes", label: "Rombel & Tahun Pelajaran", icon: "class" },
   { to: "/admin/subjects", label: "Mapel & Penugasan", icon: "menu_book" },
-  { to: "/admin/monitoring-jurnal", label: "Monitoring & Unduhan", icon: "analytics" },
+  { to: "/admin/monitoring-jurnal", label: "Monitoring Jurnal", icon: "analytics" },
+  { to: "/admin/downloads", label: "Pusat Unduhan", icon: "folder_open" },
 ];
 
 const NAV_PEMBELAJARAN_SUPERADMIN: NavItem[] = [
@@ -35,8 +36,15 @@ const NAV_PENGATURAN_SUPERADMIN: NavItem[] = [
   { to: "/admin/trash", label: "Tempat Sampah", icon: "delete_sweep" },
 ];
 
+const NAV_GURU_ADMIN: NavItem[] = [
+  { to: "/guru", label: "Input Nilai", icon: "grade" },
+  { to: "/guru/jurnal", label: "Jurnal Guru", icon: "auto_stories" },
+];
+
 const NAV_GURU: NavItem[] = [
-  { to: "/guru", label: "Jurnal, Nilai & Unduhan", icon: "auto_stories" },
+  { to: "/guru", label: "Input Nilai", icon: "grade" },
+  { to: "/guru/jurnal", label: "Jurnal Guru", icon: "auto_stories" },
+  { to: "/guru/downloads", label: "Pusat Unduhan", icon: "folder_open" },
 ];
 
 /**
@@ -60,7 +68,7 @@ function navGroupsForRoles(roles: string[]): NavGroup[] {
       { title: "Asisten AI", items: [ASISTEN_AI] },
       { title: "Utama", items: [DASHBOARD] },
       { title: "Manajemen Akademik", items: NAV_MANAJEMEN_AKADEMIK },
-      { title: "Pembelajaran & Kelas", items: NAV_GURU },
+      { title: "Pembelajaran & Kelas", items: NAV_GURU_ADMIN },
     ];
   }
 
@@ -69,7 +77,7 @@ function navGroupsForRoles(roles: string[]): NavGroup[] {
     if (hasRole(roles, "guru")) {
       items.push(...NAV_GURU);
     } else {
-      items.push({ to: "/guru?section=unduhan", label: "Pusat Unduhan", icon: "folder_open" });
+      items.push({ to: "/guru/downloads", label: "Pusat Unduhan", icon: "folder_open" });
     }
     return [
       { title: "Asisten AI", items: [ASISTEN_AI] },
@@ -210,7 +218,7 @@ function SidebarBody({
           onClick={onLogout}
           title="Keluar"
           aria-label="Keluar"
-          className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 px-4 text-[13px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors min-h-[40px]"
+          className="w-full flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-[13px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors min-h-[44px]"
         >
           <span className="material-symbols-outlined text-[18px]">logout</span>
           Keluar

@@ -63,8 +63,12 @@ foreach ($rf in $rootFiles) {
     }
 }
 
-Add-DirToZip -zipArchive $zip -dirPath "$apiDist\" -zipPrefix "apps/api/dist"
-Add-DirToZip -zipArchive $zip -dirPath "$webDist\" -zipPrefix "apps/web/dist"
+if (Test-Path $apiDist) {
+    Add-DirToZip -zipArchive $zip -dirPath "$apiDist\" -zipPrefix "apps/api/dist"
+}
+if (Test-Path $webDist) {
+    Add-DirToZip -zipArchive $zip -dirPath "$webDist\" -zipPrefix "apps/web/dist"
+}
 
 $zip.Dispose()
 

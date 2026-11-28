@@ -8,7 +8,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { eq, or, and, sql, desc, asc, isNull } from "drizzle-orm";
+import { eq, or, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { env } from "./env.js";
 import { db } from "./db/index.js";
 import { academicYears, classes, students, users, subjects, grades, assessmentComponents, apiKeys } from "./db/schema/index.js";
@@ -35,6 +35,11 @@ import {
       ALTER TABLE students ADD COLUMN IF NOT EXISTS is_kehadiran_submitted BOOLEAN DEFAULT FALSE NOT NULL;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS gds_submitted_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS kehadiran_submitted_at TIMESTAMP WITH TIME ZONE;
+      UPDATE students
+      SET is_gds_submitted = TRUE, is_kehadiran_submitted = TRUE
+      WHERE id IN (
+        SELECT student_id FROM grades WHERE status = 'approved' AND deleted_at IS NULL GROUP BY student_id
+      );
 
       CREATE TABLE IF NOT EXISTS teacher_subjects (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -53,6 +58,20 @@ import {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
       );
       CREATE UNIQUE INDEX IF NOT EXISTS homeroom_assignments_unique_idx ON homeroom_assignments (user_id, class_id);
+
+      CREATE TABLE IF NOT EXISTS class_subject_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        teacher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        jp INTEGER DEFAULT 2 NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS class_subject_assignments_unique_idx 
+        ON class_subject_assignments (class_id, subject_id, teacher_user_id);
+
+      ALTER TABLE teacher_subjects ADD COLUMN IF NOT EXISTS target_jp INTEGER DEFAULT 24 NOT NULL;
 
       CREATE TABLE IF NOT EXISTS api_keys (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -818,11 +837,21 @@ app.get("/api/public/profile/:uuid", async (c) => {
 
   let gradesRows: any[] = [];
   if (row.student_id) {
+    const teacherNameSql = sql<string | null>`COALESCE(
+      (SELECT t.name FROM class_subjects cs JOIN teachers t ON cs.teacher_id = t.id WHERE cs.class_id = ${row.class_id} AND cs.subject_id = ${grades.subjectId} LIMIT 1),
+      (SELECT t.name FROM teachers t WHERE t.user_id = ${grades.submittedBy} LIMIT 1),
+      (SELECT u.name FROM users u WHERE u.id = ${grades.submittedBy} LIMIT 1),
+      (SELECT u.name FROM grade_audit_logs gal JOIN users u ON gal.actor_id = u.id WHERE gal.grade_id = ${grades.id} AND gal.action IN ('draft_create', 'draft_update', 'submit') ORDER BY gal.created_at DESC LIMIT 1),
+      (SELECT t.name FROM teacher_subjects ts JOIN teachers t ON ts.user_id = t.user_id WHERE ts.subject_id = ${grades.subjectId} AND t.name != 'Faishal Nafi''' LIMIT 1),
+      (SELECT u.name FROM teacher_subjects ts JOIN users u ON ts.user_id = u.id WHERE ts.subject_id = ${grades.subjectId} AND u.name != 'Faishal Nafi''' LIMIT 1)
+    )`;
+
     gradesRows = await db
       .select({
         id: grades.id,
         subjectId: grades.subjectId,
         subjectName: subjects.name,
+        teacherName: teacherNameSql,
         uh1: grades.uh1,
         t1: grades.t1,
         sts: grades.sts,
@@ -854,6 +883,7 @@ app.get("/api/public/profile/:uuid", async (c) => {
             id: grades.id,
             subjectId: grades.subjectId,
             subjectName: subjects.name,
+            teacherName: teacherNameSql,
             uh1: grades.uh1,
             t1: grades.t1,
             sts: grades.sts,

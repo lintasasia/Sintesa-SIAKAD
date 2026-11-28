@@ -85,7 +85,7 @@ export default function App() {
               <Route path="/admin/monitoring-jurnal" element={<AdminMonitoringJurnalPage />} />
               <Route path="/admin/alumni" element={<AlumniPage />} />
               <Route path="/admin/keluar" element={<KeluarPage />} />
-              <Route path="/admin/downloads" element={<Navigate to="/admin/monitoring-jurnal?section=unduhan" replace />} />
+              <Route path="/admin/downloads" element={<DownloadCenterPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={["superadmin"]} />}>
@@ -99,8 +99,8 @@ export default function App() {
             <Route element={<ProtectedRoute roles={["guru", "walikelas", "admin", "superadmin"]} />}>
               <Route path="/guru/ai" element={<GuruAiChatPage />} />
               <Route path="/guru" element={<GuruNilaiPage />} />
-              <Route path="/guru/jurnal" element={<Navigate to="/guru?section=jurnal" replace />} />
-              <Route path="/guru/downloads" element={<Navigate to="/guru?section=unduhan" replace />} />
+              <Route path="/guru/jurnal" element={<GuruJurnalPage />} />
+              <Route path="/guru/downloads" element={<DownloadCenterPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={["walikelas", "admin", "superadmin"]} />}>

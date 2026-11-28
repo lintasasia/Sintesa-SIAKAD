@@ -16,6 +16,7 @@ import { requireRoles } from "../../middlewares/rbac.js";
 import { isGdsConfigured, fetchGdsPoints } from "../../services/integrations/gds.js";
 import { isKehadiranConfigured, fetchKehadiranRekap, unlockStudentScoreInPasti } from "../../services/integrations/kehadiran.js";
 import { broadcastRealtimeEvent } from "../../services/realtime.js";
+import { sortClasses } from "../../utils/sort.js";
 
 export const homeroomRoutes = new Hono<{ Variables: AuthVariables }>();
 
@@ -24,11 +25,11 @@ homeroomRoutes.use("*", requireAuth, requireRoles("walikelas", "admin", "superad
 async function resolveHomeroomClass(userId: string, roles: string[]) {
   if (roles.includes("admin") || roles.includes("superadmin")) {
     const all = await db.select().from(classes).orderBy(classes.name);
-    return all;
+    return sortClasses(all);
   }
-  // Ambil kelas yang ditugaskan ke Guru ini dari tabel homeroom_assignments
+  // Ambil kelas yang ditugaskan ke Guru ini dari tabel homeroom_assignments atau classes.homeroomTeacherId
   const assigned = await db
-    .select({
+    .selectDistinct({
       id: classes.id,
       name: classes.name,
       gradeLevel: classes.gradeLevel,
@@ -41,12 +42,21 @@ async function resolveHomeroomClass(userId: string, roles: string[]) {
       createdAt: classes.createdAt,
       updatedAt: classes.updatedAt,
     })
-    .from(homeroomAssignments)
-    .innerJoin(classes, eq(homeroomAssignments.classId, classes.id))
-    .where(and(eq(homeroomAssignments.userId, userId), eq(classes.isActive, true)))
+    .from(classes)
+    .leftJoin(homeroomAssignments, eq(homeroomAssignments.classId, classes.id))
+    .leftJoin(teachers, eq(classes.homeroomTeacherId, teachers.id))
+    .where(
+      and(
+        eq(classes.isActive, true),
+        or(
+          eq(homeroomAssignments.userId, userId),
+          eq(teachers.userId, userId),
+        ),
+      ),
+    )
     .orderBy(classes.name);
 
-  return assigned;
+  return sortClasses(assigned);
 }
 
 homeroomRoutes.get("/classes", async (c) => {
@@ -69,11 +79,18 @@ homeroomRoutes.get("/matrix", async (c) => {
   const roster = await db
     .select()
     .from(students)
-    .where(eq(students.classId, klass.id))
+    .where(
+      and(
+        eq(students.classId, klass.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .orderBy(students.name);
 
   const gradeRows = await db
     .select({
+      id: grades.id,
       studentId: grades.studentId,
       subjectId: grades.subjectId,
       status: grades.status,
@@ -83,9 +100,25 @@ homeroomRoutes.get("/matrix", async (c) => {
       uh2: grades.uh2,
       t2: grades.t2,
       subjectName: subjects.name,
+      teacherName: sql<string | null>`COALESCE(
+        (SELECT t.name FROM class_subjects cs JOIN teachers t ON cs.teacher_id = t.id WHERE cs.class_id = ${klass.id} AND cs.subject_id = ${grades.subjectId} LIMIT 1),
+        (SELECT t.name FROM teachers t WHERE t.user_id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM users u WHERE u.id = ${grades.submittedBy} LIMIT 1),
+        (SELECT u.name FROM grade_audit_logs gal JOIN users u ON gal.actor_id = u.id WHERE gal.grade_id = ${grades.id} AND gal.action IN ('draft_create', 'draft_update', 'submit') ORDER BY gal.created_at DESC LIMIT 1),
+        (SELECT t.name FROM teacher_subjects ts JOIN teachers t ON ts.user_id = t.user_id WHERE ts.subject_id = ${grades.subjectId} AND t.name != 'Faishal Nafi''' LIMIT 1),
+        (SELECT u.name FROM teacher_subjects ts JOIN users u ON ts.user_id = u.id WHERE ts.subject_id = ${grades.subjectId} AND u.name != 'Faishal Nafi''' LIMIT 1)
+      )`,
     })
     .from(grades)
     .innerJoin(subjects, eq(grades.subjectId, subjects.id))
+    .innerJoin(
+      students,
+      and(
+        eq(grades.studentId, students.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .where(and(eq(grades.classId, klass.id), isNull(grades.deletedAt)));
 
   const byStudent = new Map<string, typeof gradeRows>();
@@ -287,6 +320,14 @@ homeroomRoutes.post("/approve", async (c) => {
   const allClassGrades = await db
     .select({ studentId: grades.studentId, subjectId: grades.subjectId })
     .from(grades)
+    .innerJoin(
+      students,
+      and(
+        eq(grades.studentId, students.id),
+        eq(students.memberStatus, "siswa"),
+        eq(students.isActive, true),
+      ),
+    )
     .where(and(eq(grades.classId, body.classId), isNull(grades.deletedAt)));
 
   const countByStudent = new Map<string, Set<string>>();
@@ -415,6 +456,15 @@ homeroomRoutes.post("/approve", async (c) => {
         after: updated as unknown as Record<string, unknown>,
       });
     }
+
+    await db
+      .update(students)
+      .set({
+        isGdsSubmitted: true,
+        isKehadiranSubmitted: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(students.id, st.id));
 
     approvedList.push({ id: st.id, name: st.name });
   }

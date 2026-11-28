@@ -9,6 +9,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { usePagination } from "@/lib/pagination";
 import { useAuthStore } from "@/store/auth";
 import { useRealtimeEvent } from "@/hooks/useRealtimeEvent";
+import { sortClasses } from "@/lib/sort";
 
 type Matrix = {
   class: { id: string; name: string } | null;
@@ -46,6 +47,7 @@ type Matrix = {
     grades?: Array<{
       subjectId: string;
       subjectName: string;
+      teacherName?: string | null;
       uh1: string | number | null;
       t1: string | number | null;
       sts: string | number | null;
@@ -69,8 +71,8 @@ const defaultComponents: AssessmentComponent[] = [
   { id: "1", code: "uh1", name: "UH1", type: "UJIAN", status: "active", sortOrder: 1 },
   { id: "2", code: "t1", name: "T1", type: "TUGAS", status: "active", sortOrder: 2 },
   { id: "3", code: "sts", name: "STS", type: "UJIAN", status: "active", sortOrder: 3 },
-  { id: "4", code: "uh2", name: "UH2", type: "UJIAN", status: "disabled", sortOrder: 4 },
-  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "disabled", sortOrder: 5 },
+  { id: "4", code: "uh2", name: "UH2", type: "UJIAN", status: "active", sortOrder: 4 },
+  { id: "5", code: "t2", name: "T2", type: "TUGAS", status: "active", sortOrder: 5 },
 ];
 
 export function WalikelasMatrixPage() {
@@ -115,7 +117,7 @@ export function WalikelasMatrixPage() {
   const loadClasses = async () => {
     try {
       const res = await api<Array<{ id: string; name: string }>>("/homeroom/classes");
-      const list = res.data ?? [];
+      const list = sortClasses(res.data ?? []);
       setClasses(list);
       if (list.length > 0) {
         setSelectedClassId(list[0].id);
@@ -815,6 +817,7 @@ export function WalikelasMatrixPage() {
                                             </th>
                                           ))}
                                           <th className="px-4 py-2 text-center">Status Subjek</th>
+                                          <th className="px-4 py-2 text-left">Guru Pengampu</th>
                                           <th className="px-4 py-2 text-right">Aksi</th>
                                         </tr>
                                       </thead>
@@ -850,6 +853,9 @@ export function WalikelasMatrixPage() {
                                                   ? "Disetujui"
                                                   : g.status}
                                               </Badge>
+                                            </td>
+                                            <td className="px-4 py-2 text-left font-medium text-on-surface-variant whitespace-nowrap">
+                                              {g.teacherName || "—"}
                                             </td>
                                             <td className="px-4 py-2 text-right whitespace-nowrap">
                                                <button

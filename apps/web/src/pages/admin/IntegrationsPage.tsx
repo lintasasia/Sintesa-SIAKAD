@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Modal } from "@/components/ui/Modal";
 import { ObjectStorageSection } from "@/components/admin/ObjectStorageSection";
 import { AppUpdatePage } from "@/pages/admin/AppUpdatePage";
 
@@ -344,7 +345,7 @@ function SsoConfigModal({
   const isGenericOidc = provider.id === "generic_oidc";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <Modal isOpen={true} onClose={onClose}>
       <div
         className="w-full max-w-xl rounded-2xl p-6 border shadow-2xl flex flex-col gap-5 text-left animate-scaleUp max-h-[90vh] overflow-y-auto"
         style={{ background: "var(--bg)", borderColor: "var(--divider)", color: "var(--fg)" }}
@@ -537,7 +538,7 @@ function SsoConfigModal({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -628,10 +629,8 @@ function CreateSsoModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div
         className="w-full max-w-xl rounded-2xl p-6 border shadow-2xl flex flex-col gap-5 text-left animate-scaleUp max-h-[90vh] overflow-y-auto"
         style={{ background: "var(--bg)", borderColor: "var(--divider)", color: "var(--fg)" }}
@@ -772,7 +771,7 @@ function CreateSsoModal({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -794,10 +793,8 @@ function UnifiedSsoModal({
   syncError?: string | null;
   onClose: () => void;
 }) {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div
         className="w-full max-w-lg rounded-2xl p-6 border shadow-2xl flex flex-col gap-5 text-left animate-scaleUp max-h-[90vh] overflow-y-auto"
         style={{ background: "var(--bg)", borderColor: "var(--divider)", color: "var(--fg)" }}
@@ -929,7 +926,7 @@ function UnifiedSsoModal({
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1173,6 +1170,43 @@ function DataSyncTable({
     return log ? new Date(log.createdAt).toLocaleString("en-US") : "Never";
   };
 
+  const [cancellingPasti, setCancellingPasti] = useState(false);
+
+  const handleCancelPastiSubmit = async () => {
+    const confirm = await Swal.fire({
+      title: "Batalkan Semua Submit PASTi?",
+      text: "Seluruh data skor kedisiplinan (GDS) dan presensi (BK) di aplikasi PASTi yang sudah terkirim akan dikembalikan ke status Draft agar guru dapat mengedit dan mengisi ulang poin.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Ya, Batalkan Submit",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#f59e0b",
+      cancelButtonColor: "#6b7280",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setCancellingPasti(true);
+    try {
+      const res = await api<{ success: boolean; message: string }>("/admin/integrations/pasti/cancel-all-submit", {
+        method: "POST",
+        body: JSON.stringify({ academicYear: "2026/2027", jenis: "all" }),
+      });
+      Swal.fire({
+        title: "Berhasil Dibatalkan",
+        text: res.message || "Seluruh status submit di PASTi berhasil dikembalikan ke Draft.",
+        icon: "success",
+      });
+    } catch (e: any) {
+      Swal.fire({
+        title: "Gagal",
+        text: e.message || "Gagal membatalkan submit PASTi",
+        icon: "error",
+      });
+    } finally {
+      setCancellingPasti(false);
+    }
+  };
+
   const sources = [
     {
       id: "kredensia",
@@ -1241,8 +1275,20 @@ function DataSyncTable({
             Pull and synchronize academic master data, student discipline records, and daily attendance into SIMAK.
           </p>
         </div>
-        <div className="text-xs font-semibold app-muted">
-          {sources.filter((s) => s.isConfigured).length} of {sources.length} Configured
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleCancelPastiSubmit}
+            disabled={cancellingPasti}
+            className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            title="Kembalikan seluruh skor submitted di PASTi ke Draft agar guru bisa mengisi ulang"
+          >
+            <span className="material-symbols-outlined text-[16px]">{cancellingPasti ? "hourglass_empty" : "lock_open"}</span>
+            <span>{cancellingPasti ? "Membatalkan..." : "Batal Submit PASTi (Unlock ke Draft)"}</span>
+          </button>
+          <div className="text-xs font-semibold app-muted hidden sm:block">
+            {sources.filter((s) => s.isConfigured).length} of {sources.length} Configured
+          </div>
         </div>
       </div>
 
@@ -1418,7 +1464,7 @@ function SyncSourceConfigModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+    <Modal isOpen={true} onClose={onClose}>
       <div className="relative w-full max-w-lg rounded-2xl border bg-[var(--surface)] p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto" style={{ borderColor: "var(--divider)" }}>
         <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--divider)" }}>
           <div className="flex items-center gap-2">
@@ -1471,6 +1517,25 @@ function SyncSourceConfigModal({
                 {copied === "post" ? "Copied!" : "Copy URL"}
               </button>
             </div>
+            <div className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-[var(--surface)] border" style={{ borderColor: "var(--input-border)" }}>
+              <span className="truncate"><strong>Status API (Lock Check):</strong> /api/v1/pasti/status</span>
+              <button
+                type="button"
+                onClick={() => copyText(`${window.location.origin}/api/v1/pasti/status`, "status")}
+                className="text-[10px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 shrink-0 font-sans font-medium"
+              >
+                {copied === "status" ? "Copied!" : "Copy URL"}
+              </button>
+            </div>
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-[11px] font-sans space-y-1">
+              <div className="font-semibold flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px]">lock</span>
+                Aturan Penguncian (Approval Lock):
+              </div>
+              <p className="text-[10px] leading-relaxed">
+                Jika raport siswa sudah disetujui (Approved) oleh Wali Kelas, SINTESA akan mengunci data siswa tersebut dan menolak (HTTP 423) pembaruan data dari PASTI sampai Wali Kelas melakukan koreksi ulang.
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setShowDocs(!showDocs)}
@@ -1498,7 +1563,7 @@ function SyncSourceConfigModal({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -2222,80 +2287,78 @@ export function IntegrationsPage() {
       />
 
       {/* 5. Modal Create API Key */}
-      {showCreateKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <form
-            onSubmit={handleCreateApiKey}
-            className="w-full max-w-md rounded-2xl p-6 border shadow-2xl flex flex-col gap-4 text-left animate-scaleUp"
-            style={{ background: "var(--bg)", borderColor: "var(--divider)", color: "var(--fg)" }}
-          >
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--divider)" }}>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[var(--accent)] text-[22px]">vpn_key</span>
-                <h3 className="font-display font-bold text-base">Create New API Key</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateKeyModal(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center app-muted hover:bg-[var(--hover)]"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
+      <Modal isOpen={showCreateKeyModal} onClose={() => setShowCreateKeyModal(false)}>
+        <form
+          onSubmit={handleCreateApiKey}
+          className="w-full max-w-md rounded-2xl p-6 border shadow-2xl flex flex-col gap-4 text-left animate-scaleUp"
+          style={{ background: "var(--bg)", borderColor: "var(--divider)", color: "var(--fg)" }}
+        >
+          <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--divider)" }}>
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[var(--accent)] text-[22px]">vpn_key</span>
+              <h3 className="font-display font-bold text-base">Create New API Key</h3>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateKeyModal(false)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center app-muted hover:bg-[var(--hover)]"
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold">Application / Client Name</label>
-              <input
-                type="text"
-                value={newAppName}
-                onChange={(e) => setNewAppName(e.target.value)}
-                placeholder="e.g. PASTi Attendance App"
-                required
-                className="w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
-              />
-            </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold">Application / Client Name</label>
+            <input
+              type="text"
+              value={newAppName}
+              onChange={(e) => setNewAppName(e.target.value)}
+              placeholder="e.g. PASTi Attendance App"
+              required
+              className="w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
+            />
+          </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold">Custom Token Prefix (Max. 5 Characters)</label>
-              <input
-                type="text"
-                value={newPrefix}
-                onChange={(e) => setNewPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5))}
-                placeholder="e.g. data or pasti"
-                maxLength={5}
-                required
-                className="w-full px-3 py-2 text-sm rounded-xl border font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
-              />
-              <p className="text-[10px] app-muted">Lowercase letters and numbers only. Your token prefix (e.g. <code>data_...</code>)</p>
-            </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold">Custom Token Prefix (Max. 5 Characters)</label>
+            <input
+              type="text"
+              value={newPrefix}
+              onChange={(e) => setNewPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5))}
+              placeholder="e.g. data or pasti"
+              maxLength={5}
+              required
+              className="w-full px-3 py-2 text-sm rounded-xl border font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
+            />
+            <p className="text-[10px] app-muted">Lowercase letters and numbers only. Your token prefix (e.g. <code>data_...</code>)</p>
+          </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold">Allowed Domain / IP</label>
-              <input
-                type="text"
-                value={newDomain}
-                onChange={(e) => setNewDomain(e.target.value)}
-                placeholder="* or localhost or domain.com"
-                required
-                className="w-full px-3 py-2 text-sm rounded-xl border font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
-              />
-              <p className="text-[10px] app-muted">Use <code>*</code> to allow all host domains.</p>
-            </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold">Allowed Domain / IP</label>
+            <input
+              type="text"
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+              placeholder="* or localhost or domain.com"
+              required
+              className="w-full px-3 py-2 text-sm rounded-xl border font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              style={{ background: "var(--surface)", borderColor: "var(--input-border)", color: "var(--fg)" }}
+            />
+            <p className="text-[10px] app-muted">Use <code>*</code> to allow all host domains.</p>
+          </div>
 
-            <div className="pt-2 flex justify-end gap-2 border-t mt-2" style={{ borderColor: "var(--divider)" }}>
-              <Button type="button" size="sm" variant="secondary" onClick={() => setShowCreateKeyModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" variant="primary" disabled={createSubmitting}>
-                {createSubmitting ? "Creating..." : "Save Key"}
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="pt-2 flex justify-end gap-2 border-t mt-2" style={{ borderColor: "var(--divider)" }}>
+            <Button type="button" size="sm" variant="secondary" onClick={() => setShowCreateKeyModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" variant="primary" disabled={createSubmitting}>
+              {createSubmitting ? "Creating..." : "Save Key"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
         </>
       )}
     </div>

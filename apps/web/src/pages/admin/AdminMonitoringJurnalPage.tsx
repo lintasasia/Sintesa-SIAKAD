@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import Swal from "sweetalert2";
 import { api } from "@/lib/api";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuthStore } from "@/store/auth";
 import { useRealtimeEvent } from "@/hooks/useRealtimeEvent";
-import { DownloadCenterPage } from "@/pages/admin/DownloadCenterPage";
+import { sortClasses, sortTeachers } from "@/lib/sort";
 
 type ClassItem = { id: string; name: string };
 type TeacherItem = { id: string; name: string; nip?: string | null };
@@ -22,7 +22,6 @@ type MonitoringItem = {
   journalId: string | null;
   classId?: string | null;
   className?: string | null;
-  teacherUserId?: string | null;
   teacherName: string | null;
   subjectName: string | null;
   materi: string | null;
@@ -31,13 +30,6 @@ type MonitoringItem = {
 };
 
 export function AdminMonitoringJurnalPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeSection = (searchParams.get("section") || "monitoring") as "monitoring" | "unduhan";
-
-  const setSection = (s: "monitoring" | "unduhan") => {
-    setSearchParams(s === "monitoring" ? {} : { section: s }, { replace: true });
-  };
-
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.roles.includes("superadmin") ?? false;
 
@@ -101,7 +93,7 @@ export function AdminMonitoringJurnalPage() {
         }
       }
 
-      setClassesList(combinedClasses);
+      setClassesList(sortClasses(combinedClasses));
       if (combinedClasses.length > 0) {
         setSelectedClassId(combinedClasses[0].id);
       }
@@ -118,7 +110,7 @@ export function AdminMonitoringJurnalPage() {
             seenTNames.add(tName.toLowerCase());
           }
         }
-        setTeachersList(uniqueTeachers);
+        setTeachersList(sortTeachers(uniqueTeachers));
       }
     } catch (e) {
       console.error("Gagal memuat data kelas/guru:", e);
@@ -293,285 +285,250 @@ export function AdminMonitoringJurnalPage() {
 
   return (
     <div className="space-y-6">
-      {/* ─── Section Tab Navigation ─── */}
-      <div
-        className="flex gap-1 p-1 rounded-xl border w-fit"
-        style={{ background: "var(--hover)", borderColor: "var(--divider)" }}
-      >
-        {(
-          [
-            { key: "monitoring", label: "Monitoring Jurnal", icon: "analytics" },
-            { key: "unduhan", label: "Pusat Unduhan & Pemberkasan", icon: "folder_open" },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setSection(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-              activeSection === tab.key
-                ? "bg-[var(--bg)] shadow-sm text-[var(--accent)]"
-                : "app-muted hover:text-[var(--fg)]"
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title="Monitoring Jurnal Mengajar"
+        description="Pantau, koreksi, dan kelola jurnal mengajar harian berdasarkan kelas atau guru."
+      />
 
-      {/* ─── Pusat Unduhan Tab ─── */}
-      {activeSection === "unduhan" && <DownloadCenterPage />}
-
-      {/* ─── Monitoring Jurnal Tab ─── */}
-      {activeSection === "monitoring" && (
-        <>
-          <PageHeader
-            title="Monitoring Jurnal Mengajar"
-            description="Pantau, koreksi, dan kelola jurnal mengajar harian berdasarkan kelas atau guru."
-          />
-
-          {/* Filter Tanggal, Kelas & Guru */}
-          <Card>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider app-muted">Pilih Tanggal</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3.5 py-2 text-sm outline-none focus:border-primary"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider app-muted">
-                  Pilih Kelas <span className="text-[10px] font-normal lowercase opacity-75">(pilih salah satu)</span>
-                </label>
-                {loadingConfig ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : (
-                  <select
-                    value={selectedClassId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedClassId(val);
-                      if (val) {
-                        setSelectedTeacherId("");
-                      } else if (!selectedTeacherId && teachersList.length > 0) {
-                        setSelectedTeacherId(teachersList[0].id);
-                      }
-                    }}
-                    className={`w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-all ${
-                      selectedClassId
-                        ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold"
-                        : "border-outline-variant/40 bg-[var(--bg)] opacity-80"
-                    }`}
-                  >
-                    <option value="">— Semua Kelas (Mode Per Guru) —</option>
-                    {classesList.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        Kelas {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider app-muted">
-                  Pilih Guru <span className="text-[10px] font-normal lowercase opacity-75">(pilih salah satu)</span>
-                </label>
-                {loadingConfig ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : (
-                  <select
-                    value={selectedTeacherId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedTeacherId(val);
-                      if (val) {
-                        setSelectedClassId("");
-                      } else if (!selectedClassId && classesList.length > 0) {
-                        setSelectedClassId(classesList[0].id);
-                      }
-                    }}
-                    className={`w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-all ${
-                      selectedTeacherId
-                        ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold"
-                        : "border-outline-variant/40 bg-[var(--bg)] opacity-80"
-                    }`}
-                  >
-                    <option value="">— Semua Guru (Mode Per Kelas) —</option>
-                    {teachersList.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          </Card>
-
-          {/* Tabel Hasil Monitoring */}
-          <Card className="overflow-hidden">
-            <CardHeader
-              title={
-                isTeacherMode
-                  ? `Jurnal Pembelajaran Guru - ${selectedTeacherName}`
-                  : `Jurnal Pembelajaran Kelas - ${selectedClassName}`
-              }
-              subtitle={`Status kegiatan belajar mengajar pada tanggal ${date}`}
+      {/* Filter Tanggal, Kelas & Guru */}
+      <Card>
+        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider app-muted">Pilih Tanggal</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3.5 py-2 text-sm outline-none focus:border-primary"
             />
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
-                <thead className="text-left" style={{ background: "var(--hover)" }}>
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Jam Ke</th>
-                    {isTeacherMode && <th className="px-4 py-3 font-semibold">Kelas</th>}
-                    <th className="px-4 py-3 font-semibold">Guru Pengajar</th>
-                    <th className="px-4 py-3 font-semibold">Mata Pelajaran</th>
-                    <th className="px-4 py-3 font-semibold">Materi Pembelajaran</th>
-                    <th className="px-4 py-3 font-semibold">Ket. Presensi</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold text-right">Koreksi & Aksi</th>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider app-muted">
+              Pilih Kelas <span className="text-[10px] font-normal lowercase opacity-75">(pilih salah satu)</span>
+            </label>
+            {loadingConfig ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <select
+                value={selectedClassId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedClassId(val);
+                  if (val) {
+                    setSelectedTeacherId("");
+                  } else if (!selectedTeacherId && teachersList.length > 0) {
+                    setSelectedTeacherId(teachersList[0].id);
+                  }
+                }}
+                className={`w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-all ${
+                  selectedClassId
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold"
+                    : "border-outline-variant/40 bg-[var(--bg)] opacity-80"
+                }`}
+              >
+                <option value="">— Semua Kelas (Mode Per Guru) —</option>
+                {classesList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    Kelas {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider app-muted">
+              Pilih Guru <span className="text-[10px] font-normal lowercase opacity-75">(pilih salah satu)</span>
+            </label>
+            {loadingConfig ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <select
+                value={selectedTeacherId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedTeacherId(val);
+                  if (val) {
+                    setSelectedClassId("");
+                  } else if (!selectedClassId && classesList.length > 0) {
+                    setSelectedClassId(classesList[0].id);
+                  }
+                }}
+                className={`w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-all ${
+                  selectedTeacherId
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold"
+                    : "border-outline-variant/40 bg-[var(--bg)] opacity-80"
+                }`}
+              >
+                <option value="">— Semua Guru (Mode Per Kelas) —</option>
+                {teachersList.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* Tabel Hasil Monitoring */}
+      <Card className="overflow-hidden">
+        <CardHeader
+          title={
+            isTeacherMode
+              ? `Jurnal Pembelajaran Guru - ${selectedTeacherName}`
+              : `Jurnal Pembelajaran Kelas - ${selectedClassName}`
+          }
+          subtitle={`Status kegiatan belajar mengajar pada tanggal ${date}`}
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="text-left" style={{ background: "var(--hover)" }}>
+              <tr>
+                <th className="px-4 py-3 font-semibold">Jam Ke</th>
+                {isTeacherMode && <th className="px-4 py-3 font-semibold">Kelas</th>}
+                <th className="px-4 py-3 font-semibold">Guru Pengajar</th>
+                <th className="px-4 py-3 font-semibold">Mata Pelajaran</th>
+                <th className="px-4 py-3 font-semibold">Materi Pembelajaran</th>
+                <th className="px-4 py-3 font-semibold">Ket. Presensi</th>
+                <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold text-right">Koreksi & Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingData ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={colSpanCount} className="px-4 py-3">
+                      <Skeleton className="h-8 w-full" />
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {loadingData ? (
-                    Array.from({ length: 4 }).map((_, i) => (
-                      <tr key={i}>
-                        <td colSpan={colSpanCount} className="px-4 py-3">
-                          <Skeleton className="h-8 w-full" />
-                        </td>
-                      </tr>
-                    ))
-                  ) : rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={colSpanCount} className="px-4 py-10 text-center app-muted">
-                        Tidak ada jam mengajar yang dikonfigurasi. Silakan tambahkan jam mengajar terlebih dahulu di menu Mapel & Penugasan.
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((r, idx) => (
-                      <tr key={`${r.teachingHourId}-${r.journalId ?? idx}`} className="border-t app-divider row-hover transition-colors">
-                        <td className="px-4 py-3 font-semibold">{r.label}</td>
-                        {isTeacherMode && (
-                          <td className="px-4 py-3 font-medium">
-                            {r.className ? (
-                              r.className.toLowerCase().startsWith("kelas") ? r.className : `Kelas ${r.className}`
-                            ) : (
-                              <span className="app-muted">—</span>
-                            )}
-                          </td>
+                ))
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={colSpanCount} className="px-4 py-10 text-center app-muted">
+                    Tidak ada jam mengajar yang dikonfigurasi. Silakan tambahkan jam mengajar terlebih dahulu di menu Mapel & Penugasan.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((r, idx) => (
+                  <tr key={`${r.teachingHourId}-${r.journalId ?? idx}`} className="border-t app-divider row-hover transition-colors">
+                    <td className="px-4 py-3 font-semibold">{r.label}</td>
+                    {isTeacherMode && (
+                      <td className="px-4 py-3 font-medium">
+                        {r.className ? (
+                          r.className.toLowerCase().startsWith("kelas") ? r.className : `Kelas ${r.className}`
+                        ) : (
+                          <span className="app-muted">—</span>
                         )}
-                        <td className="px-4 py-3 font-medium">
-                          {r.teacherName ?? (isTeacherMode && r.journalId ? selectedTeacherName : <span className="app-muted">—</span>)}
-                        </td>
-                        <td className="px-4 py-3">{r.subjectName ?? <span className="app-muted">—</span>}</td>
-                        <td className="px-4 py-3 max-w-[200px] truncate" title={r.materi ?? ""}>
-                          {r.materi ?? <span className="app-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 max-w-[150px] truncate" title={r.presenceInfo ?? ""}>
-                          {r.presenceInfo ?? <span className="app-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          {r.status ? (
-                            <Badge status={r.status === "sent" ? "success" : "warning"}>
-                              {r.status === "sent" ? "Terkirim" : "Draft"}
-                            </Badge>
-                          ) : (
-                            <Badge status="incomplete">Belum Isi</Badge>
+                      </td>
+                    )}
+                    <td className="px-4 py-3 font-medium">
+                      {r.teacherName ?? (isTeacherMode && r.journalId ? selectedTeacherName : <span className="app-muted">—</span>)}
+                    </td>
+                    <td className="px-4 py-3">{r.subjectName ?? <span className="app-muted">—</span>}</td>
+                    <td className="px-4 py-3 max-w-[200px] truncate" title={r.materi ?? ""}>
+                      {r.materi ?? <span className="app-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3 max-w-[150px] truncate" title={r.presenceInfo ?? ""}>
+                      {r.presenceInfo ?? <span className="app-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.status ? (
+                        <Badge status={r.status === "sent" ? "success" : "warning"}>
+                          {r.status === "sent" ? "Terkirim" : "Draft"}
+                        </Badge>
+                      ) : (
+                        <Badge status="incomplete">Belum Isi</Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {r.journalId ? (
+                        <div className="flex gap-2 justify-end items-center">
+                          <Button size="sm" variant="ghost" disabled={busy} onClick={() => openEditModal(r)}>
+                            Edit
+                          </Button>
+                          {r.status === "sent" && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="!py-1 !px-2.5 text-xs"
+                              disabled={busy}
+                              onClick={() => handleKoreksiUlang(r.journalId!, r.label)}
+                            >
+                              Koreksi Ulang
+                            </Button>
                           )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {r.journalId ? (
-                            <div className="flex gap-2 justify-end items-center">
-                              <Button size="sm" variant="ghost" disabled={busy} onClick={() => openEditModal(r)}>
-                                Edit
-                              </Button>
-                              {r.status === "sent" && (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="!py-1 !px-2.5 text-xs"
-                                  disabled={busy}
-                                  onClick={() => handleKoreksiUlang(r.journalId!, r.label)}
-                                >
-                                  Koreksi Ulang
-                                </Button>
-                              )}
-                              {isSuperAdmin && (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="!bg-red-500/10 hover:!bg-red-500/20 !text-red-600 dark:!text-red-400 !py-1 !px-2.5 text-xs gap-1"
-                                  disabled={busy}
-                                  onClick={() => handleDeleteJournal(r.journalId!, r.label)}
-                                >
-                                  <span className="material-symbols-outlined text-[16px]">delete</span>
-                                  Hapus
-                                </Button>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs app-muted px-2">Kunci</span>
+                          {isSuperAdmin && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="!bg-red-500/10 hover:!bg-red-500/20 !text-red-600 dark:!text-red-400 !py-1 !px-2.5 text-xs gap-1"
+                              disabled={busy}
+                              onClick={() => handleDeleteJournal(r.journalId!, r.label)}
+                            >
+                              <span className="material-symbols-outlined text-[16px]">delete</span>
+                              Hapus
+                            </Button>
                           )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                        </div>
+                      ) : (
+                        <span className="text-xs app-muted px-2">Kunci</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Modal Edit Jurnal */}
+      <Modal isOpen={!!editingItem} onClose={closeEditModal}>
+        {editingItem && (
+          <Card className="w-full max-w-lg shadow-2xl bg-[var(--bg)] animate-slide-up">
+            <CardHeader
+              title={`Edit Jurnal: ${editingItem.label}`}
+              subtitle={`${editingItem.className ? `Kelas: ${editingItem.className} | ` : ""}Guru: ${editingItem.teacherName || selectedTeacherName} | Mapel: ${editingItem.subjectName}`}
+            />
+            <div className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider app-muted">Materi Pembelajaran</label>
+                <textarea
+                  value={editMateri}
+                  onChange={(e) => setEditMateri(e.target.value)}
+                  placeholder="Tuliskan pokok bahasan atau materi pembelajaran..."
+                  rows={4}
+                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider app-muted">Keterangan Presensi</label>
+                <textarea
+                  value={editPresence}
+                  onChange={(e) => setEditPresence(e.target.value)}
+                  placeholder="Contoh: Hadir lengkap..."
+                  rows={3}
+                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <Button variant="ghost" onClick={closeEditModal} disabled={busy}>
+                  Batal
+                </Button>
+                <Button onClick={handleSaveEdit} disabled={busy}>
+                  Simpan Perubahan
+                </Button>
+              </div>
             </div>
           </Card>
-
-          {/* Modal Edit Jurnal */}
-          {editingItem && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-              <Card className="w-full max-w-lg shadow-2xl bg-[var(--bg)] animate-slide-up">
-                <CardHeader
-                  title={`Edit Jurnal: ${editingItem.label}`}
-                  subtitle={`${editingItem.className ? `Kelas: ${editingItem.className} | ` : ""}Guru: ${editingItem.teacherName || selectedTeacherName} | Mapel: ${editingItem.subjectName}`}
-                />
-                <div className="p-5 space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider app-muted">Materi Pembelajaran</label>
-                    <textarea
-                      value={editMateri}
-                      onChange={(e) => setEditMateri(e.target.value)}
-                      placeholder="Tuliskan pokok bahasan atau materi pembelajaran..."
-                      rows={4}
-                      className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider app-muted">Keterangan Presensi</label>
-                    <textarea
-                      value={editPresence}
-                      onChange={(e) => setEditPresence(e.target.value)}
-                      placeholder="Contoh: Hadir lengkap..."
-                      rows={3}
-                      className="w-full rounded-xl border border-outline-variant/40 bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-
-                  <div className="flex gap-3 justify-end pt-2">
-                    <Button variant="ghost" onClick={closeEditModal} disabled={busy}>
-                      Batal
-                    </Button>
-                    <Button onClick={handleSaveEdit} disabled={busy}>
-                      Simpan Perubahan
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          )}
-        </>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }
